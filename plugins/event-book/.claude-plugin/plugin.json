@@ -1,0 +1,7 @@
+{
+  "name": "event-book",
+  "version": "0.1.0",
+  "description": "Propose features and systems as event models with Given / When / Then scenarios, written as one file Event Book opens (☰ → Import).",
+  "author": { "name": "Jocelyn Englund", "url": "https://itsybit.se" },
+  "homepage": "https://buildbook.itsybit.se/spec.html"
+}

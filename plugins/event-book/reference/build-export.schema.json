@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://buildbook.itsybit.se/build-export.schema.json",
+  "title": "Build Book export",
+  "description": "What our Given / When / Then tests write for one build. A description, not a standard: it may change without notice.",
+  "oneOf": [
+    { "$ref": "#/$defs/build" },
+    { "type": "array", "items": { "$ref": "#/$defs/scenario" } }
+  ],
+  "$defs": {
+    "build": {
+      "type": "object",
+      "required": ["app", "files"],
+      "properties": {
+        "app": { "type": "string", "minLength": 1 },
+        "repo": { "type": ["string", "null"] },
+        "commit": { "type": ["string", "null"] },
+        "build": { "type": ["string", "null"] },
+        "createdAt": { "type": ["string", "null"] },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "scenarios"],
+            "properties": {
+              "file": { "type": "string" },
+              "scenarios": { "type": "array", "items": { "$ref": "#/$defs/scenario" } }
+            }
+          }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "data": {},
+        "book": { "type": "string", "description": "Which book the event is in, for a view over several" }
+      }
+    },
+    "location": {
+      "type": "object",
+      "properties": { "file": { "type": "string" }, "line": { "type": "integer" } }
+    },
+    "scenario": {
+      "type": "object",
+      "required": ["chapter", "title", "given", "when", "then"],
+      "properties": {
+        "chapter": { "type": "string" },
+        "title": { "type": "string" },
+        "given": { "type": "array", "items": { "$ref": "#/$defs/event" } },
+        "when": { "type": ["string", "null"], "description": "The command's name, or null for a view" },
+        "whenData": { "type": ["object", "null"] },
+        "then": {
+          "oneOf": [
+            { "type": "object", "required": ["events"], "properties": { "events": { "type": "array", "items": { "$ref": "#/$defs/event" } } } },
+            { "type": "object", "required": ["rejected"], "properties": { "rejected": { "type": "string" } } },
+            { "type": "object", "required": ["nothing"], "properties": { "nothing": { "const": true } } },
+            { "type": "object", "required": ["view"], "properties": { "view": { "type": "string" }, "value": {} } }
+          ]
+        },
+        "spec": { "$ref": "#/$defs/location" },
+        "slice": {
+          "type": "object",
+          "properties": { "type": { "type": "string" }, "method": { "type": "string" }, "file": { "type": "string" }, "line": { "type": "integer" } }
+        }
+      }
+    }
+  }
+}

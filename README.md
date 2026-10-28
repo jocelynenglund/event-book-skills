@@ -9,10 +9,19 @@ Open either file in [Event Book](https://eventpad.itsybit.se) (☰ → Import), 
 
 ## Install (Claude Code)
 
+Run these one at a time, as two separate commands. First add the marketplace:
+
 ```
 /plugin marketplace add jocelynenglund/event-book-skills
+```
+
+Then install the plugin from it:
+
+```
 /plugin install event-book@event-book-skills
 ```
+
+If your Claude Code version doesn't take the `owner/repo` shorthand, use the full URL: `/plugin marketplace add https://github.com/jocelynenglund/event-book-skills.git`
 
 Then ask your agent to design something ("Design a tool library where members borrow and reserve tools"), or to make the tests write the build ("Make our tests write the build book").
 

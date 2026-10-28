@@ -1,0 +1,349 @@
+{
+  "app": "Tool library",
+  "files": [
+    {
+      "file": "catalogue",
+      "scenarios": [
+        {
+          "chapter": "Catalogue",
+          "title": "A volunteer adds the drill",
+          "given": [],
+          "when": "Add Tool",
+          "whenData": { "toolId": "t1", "name": "Drill" },
+          "then": { "events": [ { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } } ] }
+        },
+        {
+          "chapter": "Catalogue",
+          "title": "The same tool cannot be added twice",
+          "given": [ { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } } ],
+          "when": "Add Tool",
+          "whenData": { "toolId": "t1", "name": "Drill" },
+          "then": { "rejected": "Tool is already in the library" }
+        },
+        {
+          "chapter": "Catalogue",
+          "title": "The shelf shows what is in and what is out",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Added", "data": { "toolId": "t2", "name": "Ladder" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } }
+          ],
+          "when": null,
+          "then": { "view": "Tool Shelf", "value": [
+            { "toolId": "t1", "name": "Drill", "status": "out", "dueOn": "2026-11-08" },
+            { "toolId": "t2", "name": "Ladder", "status": "available", "dueOn": null }
+          ] }
+        }
+      ]
+    },
+    {
+      "file": "borrowing",
+      "scenarios": [
+        {
+          "chapter": "Borrowing",
+          "title": "Alex borrows the drill for a week",
+          "given": [ { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } } ],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "days": 7 },
+          "then": { "events": [ { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } } ] }
+        },
+        {
+          "chapter": "Borrowing",
+          "title": "A tool that is not in the library is refused",
+          "given": [],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l1", "memberId": "m1", "toolId": "t9", "borrowedOn": "2026-11-01", "days": 7 },
+          "then": { "rejected": "No such tool" }
+        },
+        {
+          "chapter": "Borrowing",
+          "title": "A tool that is already out is refused",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } }
+          ],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l2", "memberId": "m2", "toolId": "t1", "borrowedOn": "2026-11-02", "days": 7 },
+          "then": { "rejected": "Tool is out. You can reserve it." }
+        },
+        {
+          "chapter": "Borrowing",
+          "title": "A third tool at once is refused",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Added", "data": { "toolId": "t2", "name": "Ladder" } },
+            { "type": "Tool Added", "data": { "toolId": "t3", "name": "Lawn mower" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l2", "memberId": "m1", "toolId": "t2", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } }
+          ],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l3", "memberId": "m1", "toolId": "t3", "borrowedOn": "2026-11-02", "days": 7 },
+          "then": { "rejected": "At most 2 tools at a time" }
+        },
+        {
+          "chapter": "Borrowing",
+          "title": "A loan longer than 7 days is refused",
+          "given": [ { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } } ],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "days": 10 },
+          "then": { "rejected": "Loans are 7 days at most" }
+        },
+        {
+          "chapter": "Borrowing",
+          "title": "An overdue tool blocks borrowing",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Added", "data": { "toolId": "t2", "name": "Ladder" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Loan Became Overdue", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "dueOn": "2026-11-08", "daysLate": 1 } }
+          ],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l2", "memberId": "m1", "toolId": "t2", "borrowedOn": "2026-11-09", "days": 7 },
+          "then": { "rejected": "Bring back your overdue tool first" }
+        },
+        {
+          "chapter": "Borrowing",
+          "title": "Borrowing works again once the late tool is back",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Added", "data": { "toolId": "t2", "name": "Ladder" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Loan Became Overdue", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "dueOn": "2026-11-08", "daysLate": 1 } },
+            { "type": "Tool Returned", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "returnedOn": "2026-11-09" } }
+          ],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l2", "memberId": "m1", "toolId": "t2", "borrowedOn": "2026-11-09", "days": 7 },
+          "then": { "events": [ { "type": "Tool Borrowed", "data": { "loanId": "l2", "memberId": "m1", "toolId": "t2", "borrowedOn": "2026-11-09", "dueOn": "2026-11-16" } } ] }
+        },
+        {
+          "chapter": "Borrowing",
+          "title": "A tool held for another member is refused",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Held", "data": { "toolId": "t1", "memberId": "m2", "reservationId": "r1" } }
+          ],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l2", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-09", "days": 7 },
+          "then": { "rejected": "Held for another member" }
+        },
+        {
+          "chapter": "Borrowing",
+          "title": "The member the tool is held for can borrow it",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Held", "data": { "toolId": "t1", "memberId": "m2", "reservationId": "r1" } }
+          ],
+          "when": "Borrow Tool",
+          "whenData": { "loanId": "l2", "memberId": "m2", "toolId": "t1", "borrowedOn": "2026-11-09", "days": 7 },
+          "then": { "events": [ { "type": "Tool Borrowed", "data": { "loanId": "l2", "memberId": "m2", "toolId": "t1", "borrowedOn": "2026-11-09", "dueOn": "2026-11-16" } } ] }
+        }
+      ]
+    },
+    {
+      "file": "reserving",
+      "scenarios": [
+        {
+          "chapter": "Reserving",
+          "title": "Sam reserves the drill while Alex has it",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } }
+          ],
+          "when": "Reserve Tool",
+          "whenData": { "reservationId": "r1", "memberId": "m2", "toolId": "t1" },
+          "then": { "events": [ { "type": "Tool Reserved", "data": { "reservationId": "r1", "memberId": "m2", "toolId": "t1" } } ] }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "A tool on the shelf cannot be reserved",
+          "given": [ { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } } ],
+          "when": "Reserve Tool",
+          "whenData": { "reservationId": "r1", "memberId": "m2", "toolId": "t1" },
+          "then": { "rejected": "Tool is available. Borrow it instead." }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "A tool that is not in the library is refused",
+          "given": [],
+          "when": "Reserve Tool",
+          "whenData": { "reservationId": "r1", "memberId": "m2", "toolId": "t9" },
+          "then": { "rejected": "No such tool" }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "The member who has the tool cannot reserve it",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } }
+          ],
+          "when": "Reserve Tool",
+          "whenData": { "reservationId": "r1", "memberId": "m1", "toolId": "t1" },
+          "then": { "rejected": "You already have this tool" }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "Reserving the same tool twice changes nothing",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Reserved", "data": { "reservationId": "r1", "memberId": "m2", "toolId": "t1" } }
+          ],
+          "when": "Reserve Tool",
+          "whenData": { "reservationId": "r2", "memberId": "m2", "toolId": "t1" },
+          "then": { "nothing": true }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "A returned tool is held for the member who reserved it",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Reserved", "data": { "reservationId": "r1", "memberId": "m2", "toolId": "t1" } },
+            { "type": "Tool Returned", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "returnedOn": "2026-11-07" } }
+          ],
+          "when": "Hold Tool For Next Member",
+          "whenData": { "toolId": "t1" },
+          "then": { "events": [ { "type": "Tool Held", "data": { "toolId": "t1", "memberId": "m2", "reservationId": "r1" } } ] }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "With two reservations, the first one in line gets it",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Reserved", "data": { "reservationId": "r1", "memberId": "m2", "toolId": "t1" } },
+            { "type": "Tool Reserved", "data": { "reservationId": "r2", "memberId": "m3", "toolId": "t1" } },
+            { "type": "Tool Returned", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "returnedOn": "2026-11-07" } }
+          ],
+          "when": "Hold Tool For Next Member",
+          "whenData": { "toolId": "t1" },
+          "then": { "events": [ { "type": "Tool Held", "data": { "toolId": "t1", "memberId": "m2", "reservationId": "r1" } } ] }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "A returned tool nobody reserved just goes back on the shelf",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Returned", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "returnedOn": "2026-11-07" } }
+          ],
+          "when": "Hold Tool For Next Member",
+          "whenData": { "toolId": "t1" },
+          "then": { "nothing": true }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "The queue shows who is waiting, in order",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Reserved", "data": { "reservationId": "r1", "memberId": "m2", "toolId": "t1" } },
+            { "type": "Tool Reserved", "data": { "reservationId": "r2", "memberId": "m3", "toolId": "t1" } }
+          ],
+          "when": null,
+          "then": { "view": "Reservation Queue", "value": [
+            { "position": 1, "reservationId": "r1", "memberId": "m2", "toolId": "t1" },
+            { "position": 2, "reservationId": "r2", "memberId": "m3", "toolId": "t1" }
+          ] }
+        },
+        {
+          "chapter": "Reserving",
+          "title": "A reservation leaves the queue once the tool is held for it",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Reserved", "data": { "reservationId": "r1", "memberId": "m2", "toolId": "t1" } },
+            { "type": "Tool Held", "data": { "toolId": "t1", "memberId": "m2", "reservationId": "r1" } }
+          ],
+          "when": null,
+          "then": { "view": "Reservation Queue", "value": [] }
+        }
+      ]
+    },
+    {
+      "file": "returning",
+      "scenarios": [
+        {
+          "chapter": "Returning",
+          "title": "Alex brings the drill back on time",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } }
+          ],
+          "when": "Return Tool",
+          "whenData": { "loanId": "l1", "returnedOn": "2026-11-07" },
+          "then": { "events": [ { "type": "Tool Returned", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "returnedOn": "2026-11-07" } } ] }
+        },
+        {
+          "chapter": "Returning",
+          "title": "Returning a loan that does not exist is refused",
+          "given": [],
+          "when": "Return Tool",
+          "whenData": { "loanId": "l9", "returnedOn": "2026-11-07" },
+          "then": { "rejected": "No such loan" }
+        },
+        {
+          "chapter": "Returning",
+          "title": "Returning a tool twice changes nothing",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Returned", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "returnedOn": "2026-11-07" } }
+          ],
+          "when": "Return Tool",
+          "whenData": { "loanId": "l1", "returnedOn": "2026-11-07" },
+          "then": { "nothing": true }
+        },
+        {
+          "chapter": "Returning",
+          "title": "A loan past its due date is marked overdue (daily check)",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } }
+          ],
+          "when": "Mark Loan Overdue",
+          "whenData": { "loanId": "l1", "today": "2026-11-09" },
+          "then": { "events": [ { "type": "Loan Became Overdue", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "dueOn": "2026-11-08", "daysLate": 1 } } ] }
+        },
+        {
+          "chapter": "Returning",
+          "title": "A loan not yet due is not marked",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } }
+          ],
+          "when": "Mark Loan Overdue",
+          "whenData": { "loanId": "l1", "today": "2026-11-08" },
+          "then": { "nothing": true }
+        },
+        {
+          "chapter": "Returning",
+          "title": "A loan already returned is not marked",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Returned", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "returnedOn": "2026-11-07" } }
+          ],
+          "when": "Mark Loan Overdue",
+          "whenData": { "loanId": "l1", "today": "2026-11-09" },
+          "then": { "nothing": true }
+        },
+        {
+          "chapter": "Returning",
+          "title": "A member sees their loans and whether they can borrow",
+          "given": [
+            { "type": "Tool Added", "data": { "toolId": "t1", "name": "Drill" } },
+            { "type": "Tool Added", "data": { "toolId": "t2", "name": "Ladder" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "borrowedOn": "2026-11-01", "dueOn": "2026-11-08" } },
+            { "type": "Tool Borrowed", "data": { "loanId": "l2", "memberId": "m1", "toolId": "t2", "borrowedOn": "2026-11-05", "dueOn": "2026-11-12" } },
+            { "type": "Loan Became Overdue", "data": { "loanId": "l1", "memberId": "m1", "toolId": "t1", "dueOn": "2026-11-08", "daysLate": 1 } }
+          ],
+          "when": null,
+          "then": { "view": "Member Loans", "value": [
+            { "loanId": "l1", "memberId": "m1", "toolId": "t1", "dueOn": "2026-11-08", "overdue": true },
+            { "loanId": "l2", "memberId": "m1", "toolId": "t2", "dueOn": "2026-11-12", "overdue": false }
+          ] }
+        }
+      ]
+    }
+  ]
+}

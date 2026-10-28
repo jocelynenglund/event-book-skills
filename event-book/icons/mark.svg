@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Event Book">
+  <!-- Event Book's mark: a spine with the event bands, a ribbon tucked in, on a shelf -->
+  <style>
+    .cover { fill: #2a2420; }
+    @media (prefers-color-scheme: dark) { .cover { fill: #f0e8dc; } }
+  </style>
+  <rect class="cover" x="34" y="6" width="52" height="96" rx="8"/>
+  <rect x="34" y="25" width="52" height="11" fill="#5b9be6"/>
+  <rect x="34" y="41" width="52" height="11" fill="#f2a35e"/>
+  <rect x="34" y="57" width="52" height="11" fill="#6cbf5a"/>
+  <rect x="42" y="86" width="36" height="3" rx="1.5" fill="#d8b45a"/>
+  <path d="M68 2 h11 v28 l-5.5 -5.5 l-5.5 5.5 z" fill="#e0603a"/>
+  <rect x="12" y="102" width="96" height="12" rx="3.5" fill="#8a5a33"/>
+  <rect x="12" y="102" width="96" height="3.5" rx="1.75" fill="#a8743f"/>
+</svg>

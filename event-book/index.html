@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+  <title>Event Book</title>
+  <meta name="description" content="Event Book: your event model, as an e-book. Sketch event models on your phone and share them as pictures.">
+  <!-- Installable: home-screen app on phones, app window on desktop -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#f6f1e7">
+  <link rel="icon" type="image/svg+xml" href="icons/mark.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Event Book">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500;700&family=Courier+Prime:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="slices/whats-new/slice.css">
+  <!-- Opening a share link: hide the model you had open until the shared one arrives -->
+  <script>if (/[?&]m=/.test(location.search)) document.documentElement.classList.add('opening-link');
+    if (/[?&]debug\b/.test(location.search)) document.documentElement.classList.add('debug');</script>
+</head>
+<body>
+  <div class="header">
+    <button class="hd-strip" id="headerStrip" aria-label="Show the header"><span class="hd-strip-title"></span><span class="hd-strip-icon" aria-hidden="true">⤡</span></button>
+    <div class="header-title">
+      <h1 hidden><button class="lib-link" id="libraryBtn" aria-label="Back">‹ Bookshelves</button></h1>
+      <button class="hd-home" id="homeBtn" aria-label="Close the book: back to the bookshelves" hidden><img src="icons/mark.svg" alt="" width="20" height="20"><span>Event Book</span></button>
+      <div class="title-row"><button class="title-more" id="titleMore" aria-label="Name &amp; description" hidden>⋮</button><button class="model-title" id="modelTitle">Untitled model</button><button class="title-share" id="shareBtn" aria-label="Share" title="Share"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+    </div>
+    <div class="header-actions">
+      <div class="view-switch" id="detailsBtn" role="group" aria-label="View"><button data-view-switch="board" aria-pressed="true">Board</button><button data-view-switch="outline" aria-pressed="false">Outline</button></div>
+      <div class="burger-menu">
+        <button class="header-btn burger-btn" onclick="window.EventPad.toggleBurger()">☰</button>
+        <div class="burger-dropdown" id="burgerDropdown" style="display:none">
+          <button class="burger-item burger-bookshelves" id="bookshelvesItem" onclick="window.EventPad.showLibrary(); window.EventPad.toggleBurger()">▤ Bookshelves</button>
+          <button class="burger-item hd-hide" id="hideHeaderBtn" onclick="window.EventPad.toggleBurger()">⤢ Hide the header</button>
+          <div class="burger-row">
+            <button class="burger-item" id="undoBtn" disabled onclick="window.EventPad.undo(); window.EventPad.toggleBurger()">↶ Undo</button>
+            <button class="burger-item" onclick="window.EventPad.replay(); window.EventPad.toggleBurger()">⏱ Replay</button>
+            <button class="burger-item" onclick="window.EventPad.compare(); window.EventPad.toggleBurger()">↔ Compare</button>
+          </div>
+          <button class="burger-item" onclick="window.EventPad.openExport(); window.EventPad.toggleBurger()">⬇ Export…</button>
+          <button class="burger-item" onclick="document.getElementById('importFileInput').click(); window.EventPad.toggleBurger()">⬆ Import…</button>
+          <button class="burger-item" onclick="window.EventPad.openSettings(); window.EventPad.toggleBurger()">⚙ Settings…</button>
+          <button class="burger-item" onclick="window.EventPad.showAbout(); window.EventPad.toggleBurger()">ⓘ About</button>
+          <div class="burger-version" id="appVersion"><span style="font-size: 10px; opacity: 0.5;">v2026.04.12.08:38</span></div>
+        </div>
+      </div>
+      <input type="file" id="importFileInput" accept=".json" multiple style="display:none" onchange="window.EventPad.importModel(this)">
+    </div>
+  </div>
+
+  <div class="event-log-toggle">
+    📋 Events (<span id="eventCount">0</span>)
+  </div>
+  
+  <div class="event-log" id="eventLog">
+    <div class="event-log-header">
+      <span>Event Stream</span>
+      <div class="event-log-actions">
+        <button class="header-btn" onclick="window.EventPad.copyAllEvents()" style="padding: 4px 8px; font-size: 11px;">Copy All</button>
+        <button class="event-log-close" onclick="window.EventPad.toggleEventLog()">×</button>
+      </div>
+    </div>
+    <div class="event-log-list" id="eventLogList"></div>
+  </div>
+
+
+  <!-- Bookshelves: every model on this device as a shelf of books -->
+  <div class="library-view" id="libraryView" style="display:none;"></div>
+
+  <!-- Overview: Outline (chapters and slices) and Details (elements with their properties) -->
+  <div class="overview-view" id="overviewView" style="display:none;">
+    <div class="ov-tabs">
+      <button class="ov-tab" data-tab="outline">Outline</button>
+      <button class="ov-tab" data-tab="details">Details</button>
+    </div>
+    <div class="outline-view" id="outlineView"></div>
+    <div class="details-view" id="detailsView"></div>
+  </div>
+
+  <!-- Board: slices left → right, three swimlanes -->
+  <!-- One slice on its own page: stickies with their properties, then its scenarios -->
+  <div class="slice-view" id="sliceView" style="display:none;"></div>
+  <!-- Plan vs built: an outlined model beside the one built from its tests -->
+  <div class="slice-view compare-view" id="compareView" style="display:none;"></div>
+
+  <div class="board-view" id="boardView">
+    <div class="bd-stats" id="boardStats"></div>
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="fab" id="fab" role="button" aria-label="Write: add a chapter, slice or sticky"><svg class="fab-pen" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0 0-3l-1-1a2.1 2.1 0 0 0-3 0L4 16v4z M14 6l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="fab-x" aria-hidden="true">×</span></div>
+  <div class="fab-menu" id="fabMenu">
+    <button data-fab="chapter">＋ Chapter</button>
+    <button data-fab="slice">＋ Slice</button>
+    <button data-fab="reference">📗 From reference shelf</button>
+  </div>
+
+  <!-- Debug Console (mobile-friendly) -->
+  <div class="debug-console" id="debugConsole" style="display: none;">
+    <div class="debug-bar" onclick="window.EventPad.toggleDebugConsole()">
+      <span class="debug-label">🔧 declaw</span>
+      <span class="debug-count" id="debugCount">0</span>
+      <span class="debug-chevron" id="debugChevron">▲</span>
+    </div>
+    <div class="debug-logs" id="debugLogs"></div>
+  </div>
+
+  <!-- Action Sheet -->
+  <div class="sheet-overlay" id="actionSheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="actionSheetTitle">Connect Element</div>
+      <div class="sheet-options" id="actionOptions"></div>
+    </div>
+  </div>
+
+  <!-- Element Picker Sheet -->
+  <div class="sheet-overlay" id="pickerSheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="pickerSheetTitle">Pick Command</div>
+      <div class="sheet-options" id="pickerOptions"></div>
+      <div style="text-align: center; padding: 12px; color: var(--text-muted); font-size: 13px;" id="pickerEmpty">No elements available</div>
+    </div>
+  </div>
+
+  <!-- Element Menu Sheet -->
+  <div class="sheet-overlay" id="elementMenuSheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="elementMenuTitle">Element</div>
+      <div class="sheet-options" id="elementMenuOptions"></div>
+    </div>
+  </div>
+
+  <!-- Property Sheet -->
+  <div class="sheet-overlay" id="propertySheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div id="propertySheetContent"></div>
+    </div>
+  </div>
+
+  <!-- Propagate Properties Sheet -->
+  <div class="sheet-overlay" id="propagateSheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="propagateTitle">Copy properties?</div>
+      <div class="sheet-subtitle" id="propagateSubtitle" style="font-size:13px; opacity:0.6; margin-bottom:12px;"></div>
+      <div id="propagateTargets"></div>
+      <button class="sheet-btn" onclick="window.EventPad.confirmPropagate()">Copy to selected</button>
+      <button class="sheet-btn" style="background:transparent; color: var(--text-muted); margin-top:4px;" onclick="window.EventPad.skipPropagate()">Skip</button>
+    </div>
+  </div>
+
+  <!-- Multi-Select Picker Sheet -->
+  <div class="sheet-overlay" id="multiPickerSheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="multiPickerSheetTitle">Select Events</div>
+      <div class="sheet-options" id="multiPickerOptions"></div>
+      <div style="text-align: center; padding: 12px; color: var(--text-muted); font-size: 13px;" id="multiPickerEmpty">No elements available</div>
+      <button class="sheet-btn" id="multiPickerConfirm" onclick="window.EventPad.confirmMultiPick()" style="margin-top: 16px;" disabled>Select (0)</button>
+    </div>
+  </div>
+
+  <!-- Name Slice Sheet -->
+  <div class="sheet-overlay" id="sliceNameSheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">🎉 Pattern detected!</div>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 14px;" id="slicePatternDesc"></p>
+      <input type="text" class="sheet-input" id="sliceNameInput" placeholder="e.g. Create Order">
+      <button class="sheet-btn" onclick="EventPad.dispatchNameSlice()">Save Slice</button>
+      <div style="text-align: center; padding: 12px; color: var(--text-muted); cursor: pointer;" onclick="EventPad.dismissSlicePrompt()">Skip for now</div>
+    </div>
+  </div>
+
+  <!-- Add Scenario Sheet -->
+  <div class="sheet-overlay" id="addScenarioSheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="addScenarioTitle">Add Scenario</div>
+      <input type="text" class="sheet-input" id="scenarioNameInput" placeholder="e.g. Create order successfully">
+      <p style="color: var(--text-muted); font-size: 12px; margin: 8px 0 16px;" id="scenarioTypeHint">Given/When/Then</p>
+      <button class="sheet-btn" onclick="window.EventPad.submitAddScenario()">Add Scenario</button>
+    </div>
+  </div>
+
+  <!-- Edit Scenario Sheet -->
+  <div class="sheet-overlay" id="editScenarioSheet">
+    <div class="sheet" style="max-height: 85vh; overflow-y: auto;">
+      <div class="sheet-handle"></div>
+      <input type="text" class="sheet-title scenario-title-input" id="editScenarioTitle" aria-label="Scenario name" placeholder="Name this scenario" autocomplete="off">
+      <label class="scn-must"><input type="checkbox" id="editScenarioMust"> <b>★ Must have</b> <span>an acceptance criterion</span></label>
+      
+      <div class="scenario-section">
+        <div class="section-label">GIVEN</div>
+        <div id="givenEventsList" class="checkbox-list"></div>
+      </div>
+      
+      <div class="scenario-section" id="whenSection">
+        <div class="section-label">WHEN</div>
+        <select class="sheet-input" id="whenCommandSelect" style="padding: 12px;">
+          <option value="">Select command...</option>
+        </select>
+      </div>
+      
+      <div class="scenario-section">
+        <div class="section-label">THEN</div>
+        <div id="thenOptions"></div>
+      </div>
+      
+      <div style="display: flex; gap: 12px; margin-top: 20px;">
+        <button class="sheet-btn danger" onclick="window.EventPad.deleteScenario(this)" style="flex: 1;">Delete</button>
+        <button class="sheet-btn" onclick="window.EventPad.saveScenario()" style="flex: 2;">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Board sheet (content filled per interaction) -->
+  <div class="sheet-overlay" id="boardSheet">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div id="boardSheetContent"></div>
+    </div>
+  </div>
+
+  <!-- About Event Book -->
+  <div class="sheet-overlay" id="aboutSheet">
+    <div class="sheet about-sheet">
+      <div class="sheet-handle"></div>
+      <img class="about-icon" src="icons/icon-192.png" alt="" width="72" height="72">
+      <div class="sheet-title about-wordmark">Event Book</div>
+      <p class="about-tagline">Your event model, as an e-book.</p>
+      <p>Sketch how a system works on your phone, as an event model, and share it as a picture. It's a way to show people how simple an event-sourced system really is.</p>
+
+      <h3>Reading a board</h3>
+      <p>Time flows left to right. Each column is a <b>slice</b>, one small step of the story, and three lanes run through them:</p>
+      <ul class="about-lanes">
+        <li><span class="about-swatch" data-type="screen"></span><b>UI · automation</b>: what a person sees, or a processor that does the work</li>
+        <li><span class="about-swatch" data-type="command"></span><b>Commands · views</b>: what someone asks for, and the read models built for them</li>
+        <li><span class="about-swatch" data-type="event"></span><b>Events</b>: the facts that happened, the source of truth</li>
+      </ul>
+      <ul class="about-slices">
+        <li><span class="about-accent" data-slice-type="SC"></span><b>State change</b>: screen → command → event</li>
+        <li><span class="about-accent" data-slice-type="SV"></span><b>State view</b>: events → read model → screen</li>
+        <li><span class="about-accent" data-slice-type="AU"></span><b>The system reacts</b>: a processor works through a to-do list and sends a command</li>
+      </ul>
+
+      <h3>Tips</h3>
+      <ul>
+        <li>Sketch the journey in the outline: ＋ Do, ＋ See and ＋ Auto under each chapter, and tap a step to change it.</li>
+        <li>Group slices into chapters, and fold a chapter into a book spine.</li>
+        <li>Add Given / When / Then scenarios; the GWT lane under the events shows them.</li>
+        <li>Share the whole model, one chapter, or 4:5 slides for a carousel.</li>
+        <li>Install it from your browser's menu to keep it on your home screen.</li>
+      </ul>
+
+      <h3>Bookshelves and library</h3>
+      <p>Your bookshelves are the models on this device. A shelf you keep on the server (☁) is also in your library, so your other devices get it. A share link uploads a copy of that one model so others can open it.</p>
+      <p class="about-usage" id="aboutUsage"></p>
+
+      <h3>A frustrated writer's notebook</h3>
+      <p>I'm a frustrated writer who ended up modeling software on the train. Writers argue about whether they're <b>plotters</b>, who outline the story first, or <b>pantsers</b>, who write by the seat of their pants and find it as they go. Modeling works the same way, so Event Book asks which you are: 📋 plotters start in the outline, 🌀 pantsers straight on the board. Either way your models end up on a bookshelf, one book per chapter.</p>
+
+      <p class="about-origin">It began as eventPAD, for Personal Architecture Diagrams. A model written in chapters, kept on shelves and published in editions turned out to be a book, so now it’s Event Book.</p>
+
+      <button class="sheet-btn secondary about-events" onclick="window.EventPad.hideSheets(); window.EventPad.toggleEventLog()">📋 Show the event log</button>
+      <p class="about-credit">Made by Jocelyn Englund · <a href="https://itsybit.se" target="_blank" rel="noopener">itsybit.se</a><br>
+        Based on Event Modeling by <a href="https://www.linkedin.com/in/eventmodeling" target="_blank" rel="noopener">Adam Dymitruk</a>. I learned it in Adam’s and <a href="https://www.linkedin.com/in/martindilger" target="_blank" rel="noopener">Martin Dilger</a>’s workshops.<br>
+        For modeling together, try Martin’s <a href="https://app.eventmodelers.ai/" target="_blank" rel="noopener">app.eventmodelers.ai</a>.</p>
+      <button class="sheet-btn" onclick="window.EventPad.hideSheets()">Close</button>
+    </div>
+  </div>
+
+  <!-- Share image sheet -->
+  <div class="sheet-overlay" id="shareSheet">
+    <div class="sheet share-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">Share as image</div>
+      <div class="share-preview-wrap"><img id="sharePreview" alt="Preview of the event model image"></div>
+      <div class="share-slide-count" id="shareSlideCount" hidden></div>
+      <!-- What (whole model or one chapter) and how (one picture or 4:5 slides) -->
+      <div class="share-what">
+        <!-- The choice is kept in the hidden select; the button and panel pick it, with a search for long lists -->
+        <select id="shareScope" aria-hidden="true" tabindex="-1" class="share-scope-store"></select>
+        <button type="button" class="sheet-input share-scope" id="shareScopeBtn" aria-haspopup="listbox" aria-expanded="false" hidden>
+          <span id="shareScopeLabel">Whole model</span><span class="share-scope-caret">▾</span>
+        </button>
+        <div class="share-format" role="group" aria-label="Format">
+          <button data-share-set="format" data-value="board">Picture</button>
+          <button data-share-set="format" data-value="slides">Slides 4:5</button>
+          <button data-share-set="format" data-value="outline">Outline</button>
+        </div>
+      </div>
+      <div class="share-scope-panel" id="shareScopePanel" hidden>
+        <input type="search" class="sheet-input" id="shareScopeSearch" placeholder="Search chapters…" autocomplete="off" aria-label="Search chapters">
+        <div class="share-scope-list" id="shareScopeList" role="listbox" aria-multiselectable="true" aria-label="What to share"></div>
+        <button type="button" class="share-scope-done" id="shareScopeDone">Done</button>
+      </div>
+      <!-- Everything else folds away -->
+      <details class="share-more" id="shareMore">
+        <summary id="shareMoreSummary">Options</summary>
+      <div class="share-chips">
+        <button class="share-chip" data-share-opt="theme" data-on="dark" data-off="light">Chalkboard</button>
+        <button class="share-chip" id="sharePropsOpt" data-share-opt="showProps" data-on="true" data-off="false">Fields</button>
+        <button class="share-chip" id="shareDescOpt" data-share-opt="showDescription" data-on="true" data-off="false">Description</button>
+        <button class="share-chip" id="shareNotesOpt" data-share-opt="showSliceNotes" data-on="true" data-off="false">Slice notes</button>
+        <button class="share-chip" id="shareGwtOpt" data-share-opt="showScenarios" data-on="true" data-off="false">Scenarios</button>
+        <button class="share-chip" id="shareFoldOpt" data-share-opt="foldChapters" data-on="true" data-off="false">Folded chapters</button>
+      </div>
+      </details>
+      <button class="sheet-btn" id="shareGo">Share image</button>
+      <div class="share-secondary">
+        <button class="share-small" id="shareLinkBtn">🔗 Copy link</button>
+        <button class="share-small" id="shareDownload">⬇ Download</button>
+      </div>
+      <div class="sl-result" id="shareLinkResult" hidden></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="src/main.js"></script>
+  <script src="slices/whats-new/whats-new.js"></script>
+  <script>
+    document.addEventListener('click', (e) => {
+      const dd = document.getElementById('burgerDropdown');
+      if (dd && !dd.contains(e.target) && !e.target.closest('.burger-btn')) {
+        dd.style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>

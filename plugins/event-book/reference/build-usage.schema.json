@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://buildbook.itsybit.se/build-usage.schema.json",
+  "title": "Build Book usage (optional)",
+  "description": "How often each event type happened in a window. Optional, beside the build file. A description, not a standard: it may change without notice.",
+  "type": "object",
+  "required": ["app", "total", "counts"],
+  "properties": {
+    "app": { "type": "string", "minLength": 1 },
+    "at": { "type": ["string", "null"] },
+    "since": { "type": ["string", "null"] },
+    "days": { "type": ["number", "null"] },
+    "total": { "type": "integer", "minimum": 0 },
+    "counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+    "unmatched": { "type": "array", "items": { "type": "string" } }
+  }
+}

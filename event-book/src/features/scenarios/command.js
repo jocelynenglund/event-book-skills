@@ -10,14 +10,16 @@ function uid() {
 }
 
 // Add scenario to slice (source: where its test is, { file, line }, when it came from one)
-export function addScenario(sliceId, name, scenarioType, source = null) {
+// pending: from a test export, a generated spec still marked "not built yet": 'not passing yet' or 'passing'
+export function addScenario(sliceId, name, scenarioType, source = null, pending = null) {
   const scenarioId = uid();
   appendEvent(EventTypes.ScenarioAdded, {
     sliceId,
     scenarioId,
     name,
     scenarioType,
-    ...(source?.file ? { source: { file: source.file, ...(source.line ? { line: source.line } : {}) } } : {})
+    ...(source?.file ? { source: { file: source.file, ...(source.line ? { line: source.line } : {}) } } : {}),
+    ...(pending ? { pending } : {})
   });
   return scenarioId;
 }

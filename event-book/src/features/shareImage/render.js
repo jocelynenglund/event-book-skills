@@ -34,7 +34,9 @@ export const notes = {
   readModel: { fill: '#b6e3a8', text: '#163b10' },
   event:     { fill: '#ffc58a', text: '#4a2306' },
   // Events from another system
-  external:  { fill: '#fde58a', text: '#3d3005' }
+  external:  { fill: '#fde58a', text: '#3d3005' },
+  // A legacy table read as events: a shadowy orange
+  table:     { fill: '#c99a6c', text: '#2a1606' }
 };
 
 export const themes = {
@@ -175,7 +177,7 @@ function measureCard(ctx, el, showProps, todo = null) {
 }
 
 function drawCard(ctx, el, m, x, y, tilt, t, trigger = false) {
-  const n = (el.type === 'event' && el.external ? notes.external : notes[el.type]) || notes.screen;
+  const n = (el.type === 'event' && el.table ? notes.table : el.type === 'event' && el.external ? notes.external : notes[el.type]) || notes.screen;
 
   // A to-do list seen again: a slim dashed reference, not a second full card
   if (m.slim) {

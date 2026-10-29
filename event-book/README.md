@@ -1,6 +1,6 @@
 # Event Book (snapshot)
 
-A copy of [Event Book](https://eventpad.itsybit.se) as it was on 2026-10-28 (eventpad commit `b8672fd`), for anyone who'd rather run it themselves. It's a static web app with no build step.
+A copy of [Event Book](https://eventpad.itsybit.se) as it was on 2026-10-29 (eventpad commit `4de08e2`), for anyone who'd rather run it themselves. It's a static web app with no build step.
 
 ## Run it
 

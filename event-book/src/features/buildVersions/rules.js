@@ -16,6 +16,13 @@ import { snapshotEvents } from '../snapshot/command.js';
 const PUBLISHED = 'EditionPublished', NEXT = 'NextDraftStarted', SNAPSHOT = 'ModelSnapshot';
 export const KEEP_EDITIONS = 10;
 export const buildBookName = app => `${app} · built`;
+
+// The app a plan is about, guessed from its name ("eventPAD · plan: x" → eventPAD) or its repo
+export function appOfPlan(state) {
+  const name = String(state.modelName || '').split(/\s+[·•|–—:-]\s+/)[0].trim();
+  const repo = String(state.modelSource?.repo || '').replace(/\/+$/, '').split('/').pop();
+  return name || repo || '';
+}
 // A shelf name → the app it is the build book of (or null)
 export const buildBookApp = name => /^(.+) · built$/.exec(String(name || ''))?.[1] || null;
 const short = c => String(c || '').slice(0, 7);

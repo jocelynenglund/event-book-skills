@@ -8,6 +8,7 @@
 import { openShareSheet } from '../shareImage/sheet.js';
 import { shelfBooks, bookSpec, fitSpine } from './books.js';
 import { listReferences, referenceState } from '../references/store.js';
+import { byName } from '../../ui/byName.js';
 import { openReferenceBook } from '../references/sheet.js';
 import { renderShelfImage } from './shelfImage.js';
 import { renderBookcaseImage } from './bookcaseImage.js';
@@ -32,11 +33,15 @@ import { detailsOf, editionShelves } from '../editions/shelves.js';
 import { publishRefusal, ordinal } from '../editions/rules.js';
 import { publishEdition, startNextDraft } from '../editions/command.js';
 import { bookshelfSections } from './sections.js';
+import { openCatalog, terminalButton } from './catalogView.js';
 import { sectionHead, sectionBody, jumpChips, toggleSection, jumpTo } from './folds.js';
-import { showCompare } from '../../ui/feed.js';
+import { showCompare, showBoard } from '../../ui/feed.js';
+import { openReplay } from '../replay/replay.js';
 import { editionsSection } from '../buildVersions/view.js';
 import { usageSection } from '../usage/view.js';
-import { isBuildBook, buildAt } from '../buildVersions/rules.js';
+import { pressSection } from '../press/view.js';
+import { fillProductInsight } from '../productUsage/view.js';
+import { isBuildBook, buildAt, buildBookApp } from '../buildVersions/rules.js';
 
 function ago(iso) {
   if (!iso) return '';
@@ -117,9 +122,9 @@ function renderSpine(model, loan = '') {
   const fit = fitSpine(name, 36, height - 84, 17);
   const sheets = e.published ? '' : `<span class="ed-sheets" aria-hidden="true">${Array.from({ length: Math.min(d.ready, 3) }, (_, i) => `<i style="--i:${i}"></i>`).join('')}</span>`;
   return `
-    <span class="ed-book">
+    <span class="ed-book" style="--w:${fit.width + 13}px">
     <button class="ed-spine ${e.published ? 'cloth' : 'kraft'}"${loan ? ` data-loan="${loan}"` : ''} data-library-action="open" data-model="${model.id}" title="${escapeHtml(name)} · ${escapeHtml(editionText(e))}"
-      style="--h:${height}px; --w:${fit.width + 13}px; --cloth:${cloth}" aria-label="${escapeHtml(name)}, ${escapeHtml(editionText(e))}">
+      style="--h:${height}px; --cloth:${cloth}" aria-label="${escapeHtml(name)}, ${escapeHtml(editionText(e))}">
       <span class="ed-pg" aria-hidden="true"></span>
       ${sheets}
       <span class="ed-title" style="font-size:${fit.size}px">${escapeHtml(name)}</span>
@@ -180,17 +185,23 @@ export function renderLibrary() {
   // Where each book lives: published or drafts (its own history), and who has it (the foot mark)
   const sections = editionShelves(models.map(m => ({ id: m.id, events: readModelEvents(m.id) })));
   // Books shared with this account have a shelf of their own
-  const shared = sections.filter(x => sharedOf(x.id)).map(x => x.id);
-  const published = sections.filter(x => x.section === 'published' && !sharedOf(x.id)).map(x => x.id);
-  const drafts = sections.filter(x => x.section === 'drafts' && !sharedOf(x.id)).map(x => x.id);
+  const library = bookshelfSections(models, account() ? kept() : {}).library;
+  // Books checked out by someone else (another device, an agent) have a shelf of their own
+  const onLoan = library.filter(b => b.status === 'on-loan' || b.status === 'on-loan-agent').map(b => b.id);
+  const away = new Set(onLoan);
+  const shared = sections.filter(x => sharedOf(x.id) && !away.has(x.id)).map(x => x.id);
+  const published = sections.filter(x => x.section === 'published' && !sharedOf(x.id) && !away.has(x.id)).map(x => x.id);
+  const drafts = sections.filter(x => x.section === 'drafts' && !sharedOf(x.id) && !away.has(x.id)).map(x => x.id);
   const byId = Object.fromEntries(models.map(m => [m.id, m]));
-  const loans = Object.fromEntries(bookshelfSections(models, account() ? kept() : {}).library.map(b => [b.id, b.status === 'on-loan-agent' ? 'agent' : '']));
+  shelfOf = Object.fromEntries([...published.map(id => [id, 'Published']), ...drafts.map(id => [id, 'Drafts']),
+    ...onLoan.map(id => [id, 'On loan']), ...shared.map(id => [id, 'Shared with me'])]);
+  const loans = Object.fromEntries(library.map(b => [b.id, b.status === 'on-loan-agent' ? 'agent' : '']));
   // A shelf: the few books opened most recently lie flat in a stack on top of the bookcase; the
-  // rest stand in it in alphabetical order
+  // rest stand in it in alphabetical order. On loan has no stack: they're away, all stand in it
   const opened = openedAt();
   const titleOf = id => projectState(readModelEvents(id)).modelName || 'Untitled model';
-  const shelf = (kind, ids, plaque) => {
-    const recent = ids.filter(id => opened[id]).sort((a, b) => opened[b].localeCompare(opened[a])).slice(0, RECENT_FLAT);
+  const shelf = (kind, ids, plaque, { stack: stacks = true } = {}) => {
+    const recent = !stacks ? [] : ids.filter(id => opened[id]).sort((a, b) => opened[b].localeCompare(opened[a])).slice(0, RECENT_FLAT);
     const upright = ids.filter(id => !recent.includes(id)).sort((a, b) => titleOf(a).localeCompare(titleOf(b), undefined, { numeric: true, sensitivity: 'base' }));
     const stack = recent.length ? `<span class="ed-stack" aria-label="Opened recently">${recent.map((id, i) => renderFlat(byId[id], loans[id] || '', i)).join('')}</span>` : '';
     return `<div class="ed-case ed-${kind}">${stack ? `<div class="ed-top">${stack}</div>` : ''}<div class="ed-shelf">${upright.map(id => renderSpine(byId[id], loans[id] || '')).join('')}</div><div class="ed-plank"><span class="ed-plate" aria-hidden="true"><b>${plaque}</b><i>${ids.length}</i></span></div></div>`;
@@ -199,7 +210,8 @@ export function renderLibrary() {
     <div class="lb-head">
       <span class="lb-title">Bookshelves</span>
       <span class="lb-head-actions">
-        ${account() ? '<button class="lb-sharebtn lb-syncbtn" data-sync-action="sync" aria-label="Sync with your library" title="Sync with your library">⟳</button>' : ''}
+        ${terminalButton()}
+        ${account() ? '<button class="lb-sharebtn lb-syncbtn" data-sync-action="sync" aria-label="Sync with your library" title="Sync with your library"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : ''}
         <button class="lb-sharebtn" data-library-action="share-bookcase" aria-label="Share the bookshelves" title="Share the bookshelves"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         ${isReviewerAccount() ? '' : '<button class="lb-compare lb-newbtn" data-library-action="new">＋ New</button>'}
       </span>
@@ -207,6 +219,7 @@ export function renderLibrary() {
     ${jumpChips([
       { section: 'published', label: 'Published', count: published.length },
       { section: 'drafts', label: 'Drafts', count: drafts.length },
+      ...(onLoan.length ? [{ section: 'onloan', label: 'On loan', count: onLoan.length }] : []),
       ...(shared.length ? [{ section: 'shared', label: 'Shared with me', count: shared.length }] : []),
       ...(account() ? [{ section: 'missing', label: 'Not here', count: 0 }] : []),
       { section: 'reference', label: 'Reference', count: listReferences().length }])}
@@ -215,6 +228,8 @@ export function renderLibrary() {
       : '<p class="lb-section-note">An edition is a book whose every slice is done: open a draft, compare a build, then Publish.</p>'}
     ${sectionHead('drafts', 'Drafts', String(drafts.length), drafts.length)}
     ${sectionBody('drafts', drafts.length, shelf('drafts', drafts, 'Drafts'))}
+    ${onLoan.length ? `${sectionHead('onloan', 'On loan', String(onLoan.length), onLoan.length)}
+    ${sectionBody('onloan', onLoan.length, shelf('onloan', onLoan, 'On loan', { stack: false }))}` : ''}
     ${shared.length ? `${sectionHead('shared', 'Shared with me', String(shared.length), shared.length)}
     ${sectionBody('shared', shared.length, shelf('shared', shared, 'Shared with me'))}` : ''}
     <p class="ed-legend">Kraft = draft · cloth = published edition · loose sheets = refined, not built yet. Foot mark (library books): ✏️ green = checked out here, yours to edit · ☁ = checked in, read only · 🔒 amber or the itsyBIT mark = checked out on another device or to Claude. None = only on this device.</p>
@@ -229,7 +244,7 @@ export function renderLibrary() {
 
 // Chapters saved for reuse: one book each, on a shelf of their own
 function renderReferenceShelf() {
-  const refs = listReferences();
+  const refs = [...listReferences()].sort(byName);
   const books = refs.map(r => {
     const { state, chapterId } = referenceState(r);
     const slices = state.sliceOrder.map(id => state.slices[id]).filter(s => s?.chapterId === chapterId);
@@ -301,6 +316,9 @@ function openBookSheet(id) {
       <p class="lb-meta ed-meta">${bookMeta(listModels().find(m => m.id === id) || { id }, state, events)}</p>
       ${whyText ? `<p class="ed-why">${escapeHtml(whyText)}</p>` : ''}
       ${usageSection(events)}
+      ${build ? '' : pressSection(state, id)}
+      ${build ? '' : replaceHistory(events, id)}
+      ${build && buildBookApp(name) === 'eventpad' && account()?.admin ? '<div class="us-insight pu-insight" id="puInsight"></div>' : ''}
       ${editionsSection(events, id)}
       <div class="ed-actions">
         <button class="ed-btn primary" data-library-action="open" data-model="${id}">Open</button>
@@ -315,6 +333,7 @@ function openBookSheet(id) {
       ${next ? `<p class="ed-why">The ${ordinal(e.edition + 1)} edition is already a draft on your shelves.</p>` : ''}
     </div>`;
   showSheet('boardSheet');
+  fillProductInsight(document.getElementById('puInsight'));
 }
 
 // Run a command on another book: it opens, the command runs, and the model you had open is open again
@@ -470,23 +489,34 @@ let bookcaseShare = null; // { pick, blob, count }
 
 // The shelves to draw: the published editions and the drafts (books shared with you aren't yours to show),
 // each in alphabetical order, as plain specs for the picture
-function bookcaseSections(pick) {
+// The picture's shelves, as the bookshelves screen has them: a book checked out elsewhere is on
+// the On loan shelf (there only when there are some), not among Published or Drafts
+const loanedIds = models => new Set(bookshelfSections(models, account() ? kept() : {}).library
+  .filter(b => b.status === 'on-loan' || b.status === 'on-loan-agent').map(b => b.id));
+
+export function bookcaseSections(pick) {
   const models = listModels();
-  const placed = editionShelves(models.map(m => ({ id: m.id, events: readModelEvents(m.id) }))).filter(x => !sharedOf(x.id));
+  const away = loanedIds(models);
+  const placed = editionShelves(models.map(m => ({ id: m.id, events: readModelEvents(m.id) }))).filter(x => !sharedOf(x.id))
+    .map(x => (away.has(x.id) ? { ...x, section: 'onloan' } : x));
   const byId = Object.fromEntries(models.map(m => [m.id, m]));
-  return [['published', 'Published'], ['drafts', 'Drafts']].filter(([kind]) => pick === 'all' || pick === kind).map(([kind, plaque]) => ({
-    kind, plaque,
-    books: placed.filter(x => x.section === kind).map(x => ({ ...spineSpec(byId[x.id]), mark: footIcon(x.id) }))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
-  }));
+  return [['published', 'Published'], ['drafts', 'Drafts'], ...(away.size ? [['onloan', 'On loan']] : [])]
+    .filter(([kind]) => pick === 'all' || pick === kind).map(([kind, plaque]) => ({
+      kind, plaque,
+      books: placed.filter(x => x.section === kind).map(x => ({ ...spineSpec(byId[x.id]), mark: footIcon(x.id) }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+    }));
 }
 
 async function openBookcaseShare() {
-  bookcaseShare = { pick: 'all', blob: null, count: 0 };
+  bookcaseShare = { pick: 'all', format: 'tall', blob: null, count: 0 };
   document.getElementById('boardSheetContent').innerHTML = `
     <div class="sheet-title">Share the bookshelves</div>
     <div class="share-format bc-choices" role="group" aria-label="What to include">
-      ${BOOKCASE_CHOICES.map(([k, l]) => `<button data-library-action="bookcase-pick" data-pick="${k}" class="${k === 'all' ? 'active' : ''}" aria-pressed="${k === 'all'}">${l}</button>`).join('')}
+      ${[...BOOKCASE_CHOICES, ...(loanedIds(listModels()).size ? [['onloan', 'On loan']] : [])].map(([k, l]) => `<button data-library-action="bookcase-pick" data-pick="${k}" class="${k === 'all' ? 'active' : ''}" aria-pressed="${k === 'all'}">${l}</button>`).join('')}
+    </div>
+    <div class="share-format bc-formats" role="group" aria-label="Shape">
+      ${[['tall', 'Tall'], ['square', 'Square 1:1']].map(([k, l]) => `<button data-library-action="bookcase-format" data-format="${k}" class="${k === 'tall' ? 'active' : ''}" aria-pressed="${k === 'tall'}">${l}</button>`).join('')}
     </div>
     <div class="share-preview-wrap"><img id="bookcasePreview" alt="The bookshelves"></div>
     <button class="sheet-btn" data-library-action="bookcase-share-go">Share picture</button>
@@ -497,6 +527,13 @@ async function openBookcaseShare() {
   await drawBookcase();
 }
 
+function formatBookcase(format) {
+  if (!bookcaseShare || bookcaseShare.format === format) return;
+  bookcaseShare.format = format;
+  document.querySelectorAll('[data-library-action=bookcase-format]').forEach(b => { b.setAttribute('aria-pressed', String(b.dataset.format === format)); b.classList.toggle('active', b.dataset.format === format); });
+  drawBookcase();
+}
+
 function pickBookcase(pick) {
   if (!bookcaseShare || bookcaseShare.pick === pick) return;
   bookcaseShare.pick = pick;
@@ -505,11 +542,11 @@ function pickBookcase(pick) {
 }
 
 async function drawBookcase() {
-  const share = bookcaseShare, pick = share.pick;
+  const share = bookcaseShare, pick = share.pick, format = share.format;
   share.blob = null;
-  const canvas = await renderBookcaseImage({ sections: bookcaseSections(pick) });
+  const canvas = await renderBookcaseImage({ sections: bookcaseSections(pick), square: share.format === 'square' });
   const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-  if (bookcaseShare !== share || share.pick !== pick) return; // another choice (or sheet) took over
+  if (bookcaseShare !== share || share.pick !== pick || share.format !== format) return; // another choice (or sheet) took over
   share.blob = blob;
   const img = document.getElementById('bookcasePreview');
   if (img) img.src = URL.createObjectURL(blob);
@@ -560,6 +597,33 @@ function startLift(e) {
 function moveLift(e) { if (lift && Math.hypot(e.clientX - lift.x, e.clientY - lift.y) > 8) cancelLift(); }
 function cancelLift() { if (lift) clearTimeout(lift.timer); lift = null; }
 
+// History: each time an import replaced this book, with a way back to how it was before
+// (Replay, at the moment before the replace; ✕ comes back to now)
+function replaceHistory(events, id) {
+  const rows = events.map((e, i) => ({ e, i })).filter(x => x.e.type === 'BookReplacedFromImport').reverse();
+  if (!rows.length) return '';
+  return `<div class="ed-history">
+    <div class="ed-sheet-kicker">History</div>
+    ${rows.map(({ e, i }) => {
+      // Before the replace: the events before its snapshot (written in the same breath, just before it)
+      const at = events[i - 1]?.type === 'ModelSnapshot' ? i - 1 : i;
+      const when = new Date(e.timestamp);
+      return `<p class="ed-history-row">Replaced from ${escapeHtml(e.data?.fileName || 'an import')}${isNaN(when) ? '' : ` · ${escapeHtml(when.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}`}
+        <button class="ed-btn" data-library-action="before-replace" data-model="${id}" data-at="${at}">See it as it was before</button></p>`;
+    }).join('')}
+  </div>`;
+}
+
+// Which shelf each book is on (the last time the shelves were drawn), and the catalog's books
+let shelfOf = {};
+function catalogBooks() {
+  return listModels().map(m => {
+    const st = projectState(readModelEvents(m.id));
+    return { id: m.id, name: st.modelName || 'Untitled model', description: st.modelDescription || '',
+      chapters: st.chapterOrder.map(c => st.chapters[c]?.name).filter(Boolean), shelf: shelfOf[m.id] || 'Drafts', slices: Object.keys(st.slices).length };
+  });
+}
+
 function handleClick(e) {
   if (lifted) { lifted = false; if (e.target.closest('.ed-spine')) { e.preventDefault(); return; } }
   const t = e.target.closest('[data-library-action]');
@@ -567,6 +631,13 @@ function handleClick(e) {
   const a = t.dataset.libraryAction;
   const id = t.dataset.model || menuModelId;
   if (a === 'open') { hideAllSheets(); openModel(id); window.EventPad.showStart(); }
+  else if (a === 'catalog') openCatalog(catalogBooks());
+  else if (a === 'before-replace') {
+    hideAllSheets();
+    openModel(id);
+    showBoard();
+    setTimeout(() => openReplay(Number(t.dataset.at)), 150);
+  }
   else if (a === 'info') openShelfInfo(id);
   else if (a === 'details') openBookSheet(id);
   else if (a === 'compare-book') {
@@ -599,6 +670,7 @@ function handleClick(e) {
   else if (a === 'share') { hideAllSheets(); setTimeout(() => openShelfShare(id), 150); }
   else if (a === 'share-bookcase') { hideAllSheets(); setTimeout(() => openBookcaseShare(), 150); }
   else if (a === 'bookcase-pick') pickBookcase(t.dataset.pick);
+  else if (a === 'bookcase-format') formatBookcase(t.dataset.format);
   else if (a === 'bookcase-share-go') shareBookcase();
   else if (a === 'bookcase-download') downloadBookcase();
   else if (a === 'shelf-share-go') shareShelf();
@@ -662,4 +734,11 @@ export function initLibrary() {
   shelves?.addEventListener('contextmenu', e => { if (e.target.closest('.ed-spine')) e.preventDefault(); });
   // The shelf menu lives in the shared board sheet
   document.getElementById('boardSheetContent')?.addEventListener('click', handleClick);
+  // On the shelves, / looks a book up (not while typing somewhere)
+  document.addEventListener('keydown', e => {
+    if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || !document.body.classList.contains('library-mode')) return;
+    if (e.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+    e.preventDefault();
+    openCatalog(catalogBooks());
+  });
 }

@@ -12,6 +12,12 @@ export function buildFromSpec(spec, { es, c, sc }) {
   if (spec.source && c.setModelSource) c.setModelSource(spec.source.repo, spec.source.commit, { createdAt: spec.source.createdAt, build: spec.source.build });
 
   const ids = new Map();                          // "type|name" → element id: one sticky per name
+  // An event the file says is external (another system's) or a legacy table: marked on its sticky
+  const mark = (id, type, name) => {
+    const e = type === 'event' && Object.values(spec.events || {}).find(x => x.label === name);
+    if (e?.external) es.appendEvent('ElementExternalSet', { elementId: id, external: true });
+    if (e?.table) es.appendEvent('ElementTableSet', { elementId: id, table: true });
+  };
   const key = (type, name) => `${type}|${String(name).toLowerCase()}`;
   let n = 0;
   const addProps = (id, fields) => (fields || []).filter(f => f && f.name).forEach(f => es.appendEvent('PropertyAdded', {
@@ -21,7 +27,7 @@ export function buildFromSpec(spec, { es, c, sc }) {
     const k = key(type, name);
     if (ids.has(k)) { c.addToSlice(sliceId, type, { elementId: ids.get(k) }); return ids.get(k); }
     const id = c.addToSlice(sliceId, type, { name });
-    ids.set(k, id); addProps(id, fields);
+    ids.set(k, id); addProps(id, fields); mark(id, type, name);
     return id;
   };
   const ensure = (type, name, fields) => {
@@ -29,7 +35,7 @@ export function buildFromSpec(spec, { es, c, sc }) {
     if (ids.has(k)) return ids.get(k);
     const id = c.newId('el');
     es.appendEvent('ElementCreated', { elementId: id, elementType: type, name });
-    ids.set(k, id); addProps(id, fields);
+    ids.set(k, id); addProps(id, fields); mark(id, type, name);
     return id;
   };
   const ev = name => spec.events[name];
@@ -59,7 +65,7 @@ export function buildFromSpec(spec, { es, c, sc }) {
       if (s.description) c.describeSlice(sliceId, s.description);
       // Scenarios: Given events → When command → Then event / rejection / view
       for (const g of s.scenarios || []) {
-        const id = sc.addScenario(sliceId, g.title, g.type, g.source || null);
+        const id = sc.addScenario(sliceId, g.title, g.type, g.source || null, g.pending || null);
         if (g.given?.length) sc.setGiven(id, g.given.map(x => ({ elementId: ensure('event', x.event, fieldsOf(x.event)), values: x.values })));
         if (g.when) sc.setWhen(id, ensure('command', g.when.command, []), g.when.values);
         if (g.then?.kind === 'event') sc.setThenEvent(id, ensure('event', g.then.event, fieldsOf(g.then.event)), g.then.values);
@@ -70,5 +76,7 @@ export function buildFromSpec(spec, { es, c, sc }) {
       slices++;
     }
   }
+  // The catalog's external events and legacy tables no slice uses: still in the model, on their own
+  Object.values(spec.events || {}).filter(e => (e.external || e.table) && !ids.has(key('event', e.label))).forEach(e => ensure('event', e.label, e.fields));
   return { slices, scenarios, elements: ids.size };
 }

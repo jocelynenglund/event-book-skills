@@ -30,7 +30,7 @@ export function modelFromTests(tests, mods) {
   // The build's reference, where the pipeline gives one
   const build = combined?.build ?? combined?.buildNumber ?? combined?.runNumber ?? null;
   const { spec, report } = specFromScenarios(scenarios, { name, description, repo: combined?.repo || null, commit: combined?.commit || null,
-    createdAt: combined?.createdAt || null, build });
+    createdAt: combined?.createdAt || null, build, catalog: combined?.events && typeof combined.events === 'object' && !Array.isArray(combined.events) ? combined.events : null });
   buildModel(spec, mods, { snapshot: true });
   return { id: mods.es.getCurrentModelId(), name, spec, report };
 }

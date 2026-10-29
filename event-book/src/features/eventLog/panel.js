@@ -2,7 +2,8 @@
 // EVENT LOG - Panel
 // ===========================================
 
-import { getEventStream, loadEventStream, saveEventStream, createModel, StorageFullError } from '../../core/eventStore.js';
+import { getEventStream, loadEventStream, saveEventStream, createModel, StorageFullError, getCurrentModelId } from '../../core/eventStore.js';
+import { offerMatch } from '../testImport/matchSheet.js';
 import { snapshotEvents } from '../snapshot/command.js';
 import { projectState } from '../../core/projections.js';
 import { importFiles } from '../testImport/import.js';
@@ -110,6 +111,8 @@ export function importModel(input) {
       // Imports land on their own shelf instead of replacing the open model
       createModel(events);
       render();
+      // A book you already have: ask (Compare / Replace / Keep both)
+      if (offerMatch(getCurrentModelId(), file.name)) { input.value = ''; return; }
       showToast(events.length === 1 && events[0].type === 'ModelSnapshot'
         ? 'Imported as a new model (without history)'
         : `Imported as a new model (${events.length} events)`);

@@ -15,6 +15,7 @@ import { copyText } from '../../ui/clipboard.js';
 import { setReadOnly } from '../readOnly/sheet.js';
 import { isAgent } from '../library/sections.js';
 import { itsybitMark } from '../../ui/itsybitMark.js';
+import { byName } from '../../ui/byName.js';
 
 const APP_URL = 'https://eventpad.itsybit.se/';
 
@@ -187,7 +188,7 @@ async function fillServerOnly() {
     // On this device already: kept here, by their server id. A private book that happens to
     // have the same id (an old import) isn't it: downloading gives the shelf a book of its own
     const here = new Set(serverIds());
-    const missing = (await serverLibrary()).filter(m => !here.has(m.modelId));
+    const missing = (await serverLibrary()).filter(m => !here.has(m.modelId)).sort(byName);
     const box = document.getElementById('syMissing');
     if (box) box.innerHTML = sectionHead('missing', 'In your library, not on this device', String(missing.length), missing.length)
       + sectionBody('missing', missing.length, (missing.length > 1 ? `<button class="sy-download-all" data-sync-action="download-all">⬇ Download all ${missing.length}</button>` : '') + missing.map(m => `<button class="sy-missing" data-sync-action="download" data-model="${escapeHtml(m.modelId)}" title="${escapeHtml(m.name || 'Untitled model')} · ${m.count} events${m.updatedAt ? ` · changed ${escapeHtml(new Date(m.updatedAt).toLocaleString())}` : ''}">⬇ ${escapeHtml(m.name || 'Untitled model')} <span>${m.count} events</span></button>`).join(''));

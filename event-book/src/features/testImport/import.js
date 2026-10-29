@@ -14,9 +14,11 @@ import { buildModel as buildWith, modelFromTests, specFromPlan } from './fromExp
 import { openBoardSheet } from '../board/sheets/shared.js';
 import { escapeHtml } from '../board/view.js';
 import { showToast } from '../../ui/toast.js';
-import { render, showOutline } from '../../ui/feed.js';
+import { render, showOutline, showCompare } from '../../ui/feed.js';
+import { startCompare } from '../compare/view.js';
 import { projectState, getOrderedSlices } from '../../core/projections.js';
-import { suggestCompareShelf, compareModels } from '../compare/diff.js';
+import { suggestCompareShelf } from '../compare/diff.js';
+import { offerMatch } from './matchSheet.js';
 
 const readJson = async file => {
   try { return { name: file.name, json: JSON.parse(await file.text()), size: file.size }; } catch (e) { return { name: file.name, json: null, size: file.size }; }
@@ -50,10 +52,10 @@ function showSummary(title, report, diff, planId = null, builtId = null) {
     <button class="sheet-btn ${planId ? 'secondary' : ''}" data-board-action="close">Read the model</button>`);
 }
 
-// SC: Import Test Export offers Compare — a model built from tests lands on its own shelf, then
-// one sheet asks to compare it with the shelf most likely its plan (Compare Suggestion):
-// Compare (the plan opens on the left), Pick another, or Not now (stay on the new shelf).
-// The import's own summary folds into it. No other shelf: the summary alone.
+// SC: Import Test Export offers Compare — a model built from tests lands on its own shelf and
+// opens; a toast names it and offers to compare it with the shelf most likely its plan
+// (Compare Suggestion), without stopping you: iterating over several plans, a sheet each time
+// lost track of which book was open. No other shelf: the summary alone.
 const n = (count, one, many) => `${count} ${count === 1 ? one : many}`;
 // What the last import offered: { planId, builtId, why } (null: nothing to compare with)
 let offer = null;
@@ -67,26 +69,9 @@ function offerCompare(builtId, previousId, { report = null } = {}) {
   offer = { planId: pick.id, builtId, why: pick.why };
   const plan = shelves.find(x => x.id === pick.id).state;
   const name = st => st.modelName || 'Untitled model';
-  const { summary } = compareModels(plan, imported.state);
-  const why = pick.why === 'name' ? 'Named like it'
-    : pick.why === 'matches' ? `${n(summary.built + summary.maybe, 'slice', 'slices')} in common`
-    : 'The board you had open';
-  const what = report
-    ? `${n(report.chapters, 'chapter', 'chapters')} · ${n(report.slices, 'slice', 'slices')} · ${n(report.scenarios, 'scenario', 'scenarios')} · ${n(report.events, 'event', 'events')}`
-    : n(getOrderedSlices(imported.state).length, 'slice', 'slices');
-  const gaps = report && [
-    report.events_in_no_scenario.length ? `<div class="ti-h">Events no scenario mentions</div>${list(report.events_in_no_scenario, t => escapeHtml(label(t)))}` : '',
-    report.events_no_test_records.length ? `<div class="ti-h">Events no tested command records</div>${list(report.events_no_test_records, t => escapeHtml(label(t)))}` : '',
-    report.commands_without_refusal.length ? `<div class="ti-h">Commands with no refusal case</div>${list(report.commands_without_refusal, x => escapeHtml(x))}` : ''
-  ].join('');
-  openBoardSheet(`
-    <div class="sheet-title ti-compare-title">Compare ${escapeHtml(name(imported.state))} with ${escapeHtml(name(plan))}?</div>
-    <p class="ti-line">Imported, built from its tests: ${what}.</p>
-    <p class="ti-line ti-why">${escapeHtml(why)} · ${escapeHtml(name(plan))} opens on the left, the tests on the right.</p>
-    ${gaps ? `<details class="ti-gaps"><summary>What the tests don't cover</summary>${gaps}</details>` : ''}
-    <button class="sheet-btn" data-compare-with="${builtId}" data-plan="${pick.id}">Compare</button>
-    <button class="sheet-btn secondary" data-compare-pick-plan="${builtId}">Pick another…</button>
-    <button class="sheet-btn secondary" data-board-action="close">Not now</button>`);
+  const what = report ? n(report.slices, 'slice', 'slices') : n(getOrderedSlices(imported.state).length, 'slice', 'slices');
+  showToast(`Imported ${name(imported.state)} (${what}): it's open now`,
+    { action: `Compare with ${name(plan)}`, onAction: () => startCompare(pick.id, builtId, showCompare) });
   return true;
 }
 
@@ -105,14 +90,17 @@ export async function importFiles(fileList) {
   const unknown = kinds.filter(f => f.kind === 'unknown');
 
   try {
-    // eventPAD models: each on its own shelf
+    // eventPAD models: each on its own shelf (one that's a book you already have: ask)
     models.forEach(m => es.createModel(m.json));
+    if (models.length === 1 && !tests.length && !plan && offerMatch(es.getCurrentModelId(), models[0].name)) { render(); return; }
 
     if (tests.length) {
       const before = new Set(es.listModels().map(m => m.id));
       const { id: builtId, name, spec, report } = modelFromTests(tests, { es, c, sc });
       render();
       showOutline();
+      // A build of an app that has a book here (its build book, or a shelf named like it): ask
+      if (!plan && offerMatch(builtId, tests[0].name)) return;
       // With docs/slices.json beside it: the plan-vs-model summary, as before
       if (plan) {
         // An outlined model of the same name is likely its plan

@@ -9,7 +9,7 @@
 
 import { statusChips, shows, filtering as staged, emptyText, filterFor } from '../filter/status.js';
 import { projectState, getBoardGroups, getScenariosForSlice, sliceTitle, refinedLabel } from '../../core/projections.js';
-import { renderGwt, hasValues } from '../scenarios/view.js';
+import { renderGwt, hasValues, pendingMark } from '../scenarios/view.js';
 import { typeLabels, byName, propLabel } from '../../core/constants.js';
 import { setMustHave } from '../scenarios/command.js';
 import { render, showSlicePage } from '../../ui/feed.js';
@@ -31,6 +31,7 @@ import { canAddScenariosHere, reviewOf } from '../review/client.js';
 import { verifyingEdition } from '../verify/command.js';
 import { recordVerdict, verificationResults, verdictOf } from '../verify/command.js';
 import { getCurrentModelId, getEventStream } from '../../core/eventStore.js';
+import { isBuildBook } from '../buildVersions/rules.js';
 import { commentsOn, openComments } from '../comments/read.js';
 import { usageBadge, usageButton } from '../usage/view.js';
 
@@ -176,7 +177,7 @@ function renderScenarios(slice, state) {
         <button class="ol-must ${scn.mustHave ? 'on' : ''}" data-outline-action="must" data-scenario="${scn.id}" aria-pressed="${!!scn.mustHave}"
           aria-label="${scn.mustHave ? 'Must have: tap to make it a nice to have' : 'Nice to have: tap to make it a must have'}">${scn.mustHave ? '★' : '☆'}</button>
         <button class="ol-scenario" data-outline-action="edit-scenario" data-scenario="${scn.id}">
-          <span class="ol-scenario-name">${escapeHtml(scn.name)}</span>
+          <span class="ol-scenario-name">${escapeHtml(scn.name)}${pendingMark(scn)}</span>
           ${scn.source?.file ? `<span class="ol-src">📄 ${escapeHtml(scn.source.file.split('/').pop())}${scn.source.line ? `:${scn.source.line}` : ''}</span>` : ''}
           ${renderGwt(scn, state, { values: showFields || openValues.has(slice.id) })}
         </button>
@@ -498,6 +499,8 @@ export function renderOutline() {
   const filtering = words.length || staged();
   const openCount = openComments(state).length;
   let shown = 0;
+  // A build book's slices are all built: its chapters count slices and scenarios, not Refined
+  const built = isBuildBook(getEventStream());
   const sections = groups.map(({ chapter, slices: inChapter }, gi) => {
     // Searching: a matching chapter shows all its slices, otherwise just the matching ones
     const found = !words.length || (chapter && matches(norm(chapter.name), words))
@@ -513,10 +516,10 @@ export function renderOutline() {
     const head = chapter ? `
       <div class="ol-chapter ${folded ? 'folded' : ''}">
         <button class="ol-fold" aria-label="${folded ? 'Open' : 'Fold'} ${escapeHtml(chapter.name)}" data-outline-action="fold" data-chapter="${chapter.id}">${folded ? '›' : '⌄'}</button>
-        <button class="ol-chapter-name" data-outline-action="chapter-menu" data-chapter="${chapter.id}">${isChapterBookmarked(chapter.id) ? '<span class="ch-mark" aria-label="Bookmarked">🔖</span> ' : ''}${escapeHtml(chapter.name)}</button>
-        <span class="ol-count">${inChapter.length && !words.length
-          ? `<span class="ol-refined-count ${refinedOf(inChapter) === inChapter.length ? 'all' : ''}">${refinedLabel(refinedOf(inChapter), inChapter.length)}</span>`
-          : slices.length}${bands}</span>
+        <div class="ol-ch-text">
+          <button class="ol-chapter-name" data-outline-action="chapter-menu" data-chapter="${chapter.id}">${isChapterBookmarked(chapter.id) ? '<span class="ch-mark" aria-label="Bookmarked">🔖</span> ' : ''}${escapeHtml(chapter.name)}</button>
+          <span class="ol-count">${inChapter.length && !words.length ? chapterMeta(inChapter, state, built) : slices.length}${bands}</span>
+        </div>
         <div class="ol-step" ${words.length ? 'hidden' : ''}>
           <button aria-label="Chapter earlier" data-outline-action="chapter-up" data-chapter="${chapter.id}" data-to="${ci - 1}" ${ci === 0 ? 'disabled' : ''}>↑</button>
           <button aria-label="Chapter later" data-outline-action="chapter-down" data-chapter="${chapter.id}" data-to="${ci + 1}" ${ci === state.chapterOrder.length - 1 ? 'disabled' : ''}>↓</button>
@@ -654,6 +657,15 @@ function handleClick(e) {
   else if (a === 'edit') openEditSheet(id);
   else if (a === 'edit-save') saveEdit();
   else if (a === 'share-slice') { hideAllSheets(); setTimeout(() => openShareSheet(null, { sliceId: id }), 150); }
+}
+
+// Under a chapter's name: how far its slices are (a plan), or what it holds (a build book)
+function chapterMeta(inChapter, state, built) {
+  if (built) {
+    const scns = inChapter.reduce((n, s) => n + getScenariosForSlice(s.id, state).length, 0);
+    return `<span class="ol-refined-count built">${inChapter.length} ${inChapter.length === 1 ? 'slice' : 'slices'} · ${scns} ${scns === 1 ? 'scenario' : 'scenarios'}</span>`;
+  }
+  return `<span class="ol-refined-count ${refinedOf(inChapter) === inChapter.length ? 'all' : ''}">${refinedLabel(refinedOf(inChapter), inChapter.length)}</span>`;
 }
 
 // Along the bottom, as on the board: Collapse all (every chapter and every slice's scenarios)

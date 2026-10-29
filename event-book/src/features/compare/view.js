@@ -13,6 +13,8 @@ import { sourceSummary } from '../../core/source.js';
 import { escapeHtml } from '../board/view.js';
 import { openBoardSheet } from '../board/sheets/shared.js';
 import { hideAllSheets } from '../../ui/sheets.js';
+import { byName } from '../../ui/byName.js';
+import { builtAsPlannedSection } from '../specs/view.js';
 
 const PAIR_KEY = 'eventpad_compare_pairs';   // plan model id → built model id, per device
 const pairs = () => { try { return JSON.parse(localStorage.getItem(PAIR_KEY) || '{}'); } catch (e) { return {}; } };
@@ -29,7 +31,7 @@ const kind = { SC: 'Change', SV: 'View', AU: 'Automation' };
 
 function rowIssues(r) {
   return {
-    gwt: r.scenarios.some(x => x.mismatches.length || (x.mustHave && !x.tested)),
+    gwt: r.scenarios.some(x => x.mismatches.length || (x.mustHave && !x.tested && !x.notPassingYet)),
     fields: r.fields.missing.length + r.fields.extra.length > 0
   };
 }
@@ -37,6 +39,7 @@ const shows = r => filter === 'all' ? true
   : filter === 'missing' ? r.status === 'missing'
   : filter === 'new' ? r.status === 'new'
   : filter === 'maybe' ? r.status === 'maybe'
+  : filter === 'pending' ? r.scenarios.some(x => x.notPassingYet)
   : filter === 'gwt' ? rowIssues(r).gwt
   : filter === 'fields' ? rowIssues(r).fields : true;
 
@@ -94,7 +97,7 @@ function renderMismatch(m) {
 
 // A line of the compare, as the outline reads: − only on the left (planned, not built),
 // + only on the right, nothing for what both have. Muted red and green, no other marks.
-const mark = t => t === '−' ? 'minus' : t === '+' ? 'plus' : '';
+const mark = t => t === '−' ? 'minus' : t === '+' ? 'plus' : t === '⏳' ? 'pending' : '';
 const line = (t, html, extra = '') => `<div class="cp-line ${mark(t)}${extra}"><i>${t === '=' ? '' : t}</i><span>${html}</span></div>`;
 const star = x => x.mustHave ? '★' : '☆';
 
@@ -106,8 +109,8 @@ function renderRow(r) {
   // Its scenarios: the ones in both plain, the ones only on the left −, a differing one with its lines
   const scn = r.status === 'new' ? [] : r.scenarios.filter(x => x.mustHave || !x.tested || x.mismatches.length);
   if (scn.length) parts.push(`<div class="cp-scns">${scn.map(x => `
-    <div class="cp-scn ${!x.tested ? 'minus' : x.mismatches.length ? 'differs' : ''}">
-      ${line(x.tested ? '=' : '−', `${star(x)} ${escapeHtml(x.name)}`)}
+    <div class="cp-scn ${x.notPassingYet ? 'pending' : !x.tested ? 'minus' : x.mismatches.length ? 'differs' : ''}">
+      ${line(x.notPassingYet ? '⏳' : x.tested ? '=' : '−', `${star(x)} ${escapeHtml(x.name)}${x.notPassingYet ? ' <span class="cp-tag">not passing yet</span>' : ''}`)}
       ${x.mismatches.map(renderMismatch).join('')}
     </div>`).join('')}</div>`);
   // Only on the right: folded (what was built beyond the plan)
@@ -116,7 +119,7 @@ function renderRow(r) {
   if (r.status === 'new' && r.extraTests.length) parts.push(r.extraTests.map(t => line('+', escapeHtml(t))).join(''));
   if (r.fields.missing.length) parts.push(`<p class="cp-fields minus"><span class="cp-tag">− fields ${only('a')}</span>${r.fields.missing.map(f => `<code>${escapeHtml(f)}</code>`).join(' ')}</p>`);
   if (r.fields.extra.length) parts.push(`<p class="cp-fields plus"><span class="cp-tag">+ fields ${only('b')}</span>${r.fields.extra.map(f => `<code>${escapeHtml(f)}</code>`).join(' ')}</p>`);
-  const sign = r.status === 'missing' ? '−' : r.status === 'new' ? '+' : '';
+  const sign = r.status === 'missing' ? '−' : r.status === 'new' ? '+' : r.status === 'pending' ? '⏳' : '';
   return `
     <article class="cp-row ${mark(sign)}" data-status="${r.status}">
       <div class="cp-head"><i class="cp-sign">${sign}</i><span class="cp-dot" data-slice-type="${r.type}"></span>
@@ -136,6 +139,8 @@ export function renderCompare() {
   if (names.a === names.b) names = { a: `${names.a} (this one)`, b: `${names.b} (the other)` };
   const chip = (key, text, n) => `<button class="cp-chip ${filter === key ? 'on' : ''}" data-compare-filter="${key}" ${n === 0 && key !== 'all' ? 'disabled' : ''}>${text}</button>`;
   const gwt = rows.filter(r => rowIssues(r).gwt).length;
+  // Generated specs still pending: planned scenarios whose tests aren't passing yet
+  const waiting = rows.reduce((n, r) => n + r.scenarios.filter(x => x.notPassingYet).length, 0);
   const chapters = [...new Set(rows.map(r => r.chapter))];
   const sections = chapters.map(ch => {
     const list = rows.filter(r => r.chapter === ch && shows(r));
@@ -149,16 +154,18 @@ export function renderCompare() {
     <header class="cp-header">
       <div class="sp-kicker">Compare</div>
       <h1 class="cp-h1">${escapeHtml(plan.modelName || 'Untitled model')} <span>↔</span> ${escapeHtml(built.modelName || 'Untitled model')}</h1>
-      <p class="cp-sum">${s.built} of ${s.planned} slices are in both${s.maybe ? ` · ${s.maybe} maybe renamed` : ''}${s.mustHaves ? ` · ${s.mustHavesTested} of ${s.mustHaves} ★ must haves are in both` : ''}</p>
+      <p class="cp-sum">${s.built} of ${s.planned} slices are in both${s.pending ? ` · ${s.pending} with specs written, not passing yet` : ''}${s.maybe ? ` · ${s.maybe} maybe renamed` : ''}${s.mustHaves ? ` · ${s.mustHavesTested} of ${s.mustHaves} ★ must haves are in both` : ''}</p>
       <div class="cp-chips">
         ${chip('all', 'All', 1)}
         ${s.maybe ? chip('maybe', `${s.maybe} maybe renamed`, s.maybe) : ''}
         ${chip('missing', `− ${s.missing} ${only('a')}`, s.missing)}
         ${chip('new', `+ ${s.new} ${only('b')}`, s.new)}
+        ${waiting ? chip('pending', `⏳ ${waiting} not passing yet`, waiting) : ''}
         ${chip('gwt', `${gwt} with Given/When/Then differences`, gwt)}
         ${chip('fields', `${s.fieldDiffs} ${s.fieldDiffs === 1 ? 'field' : 'fields'}`, s.fieldDiffs)}
       </div>
       ${renderConfirmDone(plan, built)}
+      ${builtAsPlannedSection(plan, built)}
       <button class="cp-change" data-compare-action="change">Compare with another book…</button>
     </header>
     ${sections || '<p class="cp-note cp-empty">Nothing here.</p>'}`;
@@ -181,12 +188,17 @@ export function initCompare({ showCompare }) {
     if (other) { openComparePicker(null, showCompare, { builtId: other.dataset.comparePickPlan }); return; }
     const t = e.target.closest('[data-compare-with]');
     if (!t) return;
-    rememberPair(t.dataset.plan, t.dataset.compareWith);
-    hideAllSheets();
-    // The left side is always the open board: open it if it isn't (after an import, the plan)
-    if (getCurrentModelId() !== t.dataset.plan) openModel(t.dataset.plan);
-    showCompare(t.dataset.plan, t.dataset.compareWith);
+    startCompare(t.dataset.plan, t.dataset.compareWith, showCompare);
   });
+}
+
+// Compare a plan (the left side) with another book; the left side is always the open board,
+// so the plan opens if it isn't (after an import, from the import's toast)
+export function startCompare(planId, builtId, showCompare) {
+  rememberPair(planId, builtId);
+  hideAllSheets();
+  if (getCurrentModelId() !== planId) openModel(planId);
+  showCompare(planId, builtId);
 }
 
 // Done is recorded, never assumed: when the other shelf was built from the tests (it has a
@@ -265,7 +277,8 @@ export function openComparePicker(planId, showCompare, { builtId = null } = {}) 
       return { id: m.id, name: st.modelName || 'Untitled model',
         meta: [sourceSummary(st) || (edited ? `edited ${edited}` : ''), `${slices} ${slices === 1 ? 'slice' : 'slices'}`].filter(Boolean).join(' · ') };
     })
-    .sort((a, b) => (b.name.toLowerCase() === name) - (a.name.toLowerCase() === name));
+    // Same-named books first (likely the other side), then the rest alphabetically
+    .sort((a, b) => (b.name.toLowerCase() === name) - (a.name.toLowerCase() === name) || byName(a, b));
   if (!others.length) {     openBoardSheet('<div class="sheet-title">Compare shelves</div><p class="cp-note">You need a second shelf to compare with: make one, or import one (☰ → Import…), e.g. a model built from the tests.</p>'); return; }
   openBoardSheet(`
     <div class="sheet-title">Compare ${escapeHtml(nameOf(planId))} with… </div>

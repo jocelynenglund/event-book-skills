@@ -7,11 +7,12 @@
 
 import { projectState, getOrderedSlices, getScenariosForSlice, sliceTitle, sliceFlow } from '../../core/projections.js';
 import { elementLabel, externalAttr, propLabel } from '../../core/constants.js';
-import { filled } from '../scenarios/view.js';
+import { filled, pendingMark } from '../scenarios/view.js';
 import { idsHidden, setIdsHidden, aliaser, shownEntries, scenarioHasIds } from '../scenarios/ids.js';
 import { sourceUrl, sourceLabel } from '../../core/source.js';
 import { escapeHtml, sliceTypeLabels } from '../board/view.js';
 import { sliceUsageLine, eventUsageChip } from '../usage/view.js';
+import { specTrail } from '../specs/view.js';
 import { laneOf, sliceActor } from '../board/command.js';
 import { openElementMenu } from '../elementMenu/sheet.js';
 import { openSliceMenu } from '../board/sheets/sliceMenu.js';
@@ -100,7 +101,7 @@ function renderScenario(scn, state) {
   return `
     <article class="sp-scn">
       <button class="sp-scn-head" data-slice-page="scenario" data-scenario="${scn.id}">
-        <span class="sp-scn-name">${scn.mustHave ? '<span class="must-star" title="Must have">★</span> ' : ''}${escapeHtml(scn.name)}</span><span class="sp-edit">Edit</span>
+        <span class="sp-scn-name">${scn.mustHave ? '<span class="must-star" title="Must have">★</span> ' : ''}${escapeHtml(scn.name)}${pendingMark(scn)}</span><span class="sp-edit">Edit</span>
       </button>
       ${scn.source?.file ? (() => {
         const url = sourceUrl(state, scn.source.file, scn.source.line);
@@ -144,6 +145,7 @@ export function renderSlicePage(sliceId) {
       <div class="sp-kicker">${sliceTypeLabels[slice.type] || slice.type}${chapter ? ` · ${escapeHtml(chapter.name)}` : ''}${flow ? ` · ↳ ${escapeHtml(flow.name)}` : ''}</div>
       <h1 class="sp-title">${escapeHtml(sliceTitle(slice, state))}</h1>
       ${sliceUsageLine(slice, state)}
+      ${specTrail(slice, state)}
       ${slice.description ? `<p class="sp-desc">${linkCode(slice.description, state)}</p>` : ''}
       <div class="sp-tools">
         <button class="sp-tool" data-slice-page="menu" data-slice="${slice.id}">Edit slice</button>
@@ -201,6 +203,7 @@ export function initSlicePage({ showSlicePage, showSliceOnBoard }) {
     if (!t || t.disabled) return;
     const a = t.dataset.slicePage, id = t.dataset.slice;
     if (a === 'go' && id) turnPage(t.getAttribute('aria-label') === 'Next slice' ? 'next' : 'prev');
+    else if (a === 'open' && id) showSlicePage(id);
     else if (a === 'element') openElementMenu(t.dataset.el, id);
     else if (a === 'scenario') window.EventPad.editScenario(t.dataset.scenario);
     else if (a === 'add-scenario') { const s = projectState().slices[id]; if (s) window.EventPad.addScenario(s.id, s.type); }

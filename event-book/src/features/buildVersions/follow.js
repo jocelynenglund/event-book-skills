@@ -9,7 +9,7 @@
 import { listModels, readModelEvents, getCurrentModelId, canEditCurrent } from '../../core/eventStore.js';
 import { projectState } from '../../core/projections.js';
 import { account, api, serverLibrary } from '../sync/client.js';
-import { buildAt, buildBookApp, buildBookName, isBuildBook } from './rules.js';
+import { appOfPlan, buildAt, buildBookApp, buildBookName, isBuildBook } from './rules.js';
 import { followBuild, unfollowBuild, markDoneFromBuild, startPlanFromBuild } from './command.js';
 import { norm } from '../compare/diff.js';
 import { openBoardSheet } from '../board/sheets/shared.js';
@@ -18,12 +18,7 @@ import { showToast } from '../../ui/toast.js';
 import { escapeHtml } from '../board/view.js';
 import { onRender, render } from '../../ui/feed.js';
 
-// The app a plan is about, guessed from its name ("eventPAD · plan: x" → eventPAD) or its repo
-export function appOfPlan(state) {
-  const name = String(state.modelName || '').split(/\s+[·•|–—:-]\s+/)[0].trim();
-  const repo = String(state.modelSource?.repo || '').replace(/\/+$/, '').split('/').pop();
-  return name || repo || '';
-}
+export { appOfPlan };
 
 // Every shelf the library has by name: on the server, and on this device
 async function shelves() {

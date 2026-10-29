@@ -27,6 +27,7 @@ What Given / When / Then tests write, what a plan proposes, and what Event Book 
 | `commit` | no | The commit the build ran on. Tells editions apart. **A plan has none**: no `commit` means a plan, not a build. |
 | `build` | no | The CI run's number, as a string. |
 | `createdAt` | no | When the file was written (ISO 8601). |
+| `events` | no | What the scenarios can't say about an event type, by its name: it's external, or a legacy table. See [External events and legacy tables](#external-events-and-legacy-tables). |
 
 A bare list of scenarios (one test file's, without the wrapper) is read too.
 
@@ -57,6 +58,7 @@ One Given / When / Then. The `chapter` groups slices; the command (`when`) or th
 | `then` | yes | One of the four outcomes below. |
 | `spec` | no | Where the test is: `{ file, line }`. Builds only. |
 | `slice` | no | Where the code under test is: `{ type, method, file, line }`. Builds only. |
+| `pending`, `passing`, `pendingReason` | no | A generated spec still marked "not built yet". Not passing, its `then` is the planned outcome, and the book shows it as "not passing yet". Builds only. |
 
 ### The four outcomes
 
@@ -70,6 +72,25 @@ One Given / When / Then. The `chapter` groups slices; the command (`when`) or th
 ### Events
 
 Every event is `{ type, data }`. Names can be PascalCase (`PartyCreated`) or words (`Party Created`); they match either way. An event type's fields are every key the scenarios ever gave it.
+
+### External events and legacy tables
+
+Some events aren't this system's own. Name them in the file's `events`, by type:
+
+```json
+"events": {
+  "Payment Received": { "external": true, "from": "Stripe" },
+  "Orders Tbl":       { "table": true, "from": "the old ERP" }
+}
+```
+
+| Field | Means |
+|---|---|
+| `external` | Another system records it; this one only reacts. Event Book draws it yellow. |
+| `table` | A table in an old database, read as if it were events (a legacy system you're modelling around). Drawn a shadowy orange, so it reads apart from real events. |
+| `from` | Which system or database it comes from. |
+
+An event named here that no scenario mentions is still in the model.
 
 ## Usage (optional)
 

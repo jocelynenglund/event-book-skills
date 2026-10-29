@@ -8,6 +8,11 @@ import { idsHidden, aliaser, shownEntries } from './ids.js';
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Only values that were filled in: an empty one says nothing
+// A generated spec still marked pending in the build: not passing yet, or passing (its mark can go)
+export const pendingMark = scn => scn?.pending === 'not passing yet'
+  ? ' <span class="scn-pending" title="A generated spec: written, not passing yet">⏳ not passing yet</span>'
+  : scn?.pending === 'passing' ? ' <span class="scn-pending passing" title="Passing: the builder can take its pending mark off">✓ passing, still marked pending</span>' : '';
+
 export const filled = v => v !== '' && v !== null && v !== undefined
   && !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
 export const hasValues = scn => [...(scn.given || []).map(g => g.values), scn.when?.values, scn.then?.values, ...(scn.then?.rows || [])]

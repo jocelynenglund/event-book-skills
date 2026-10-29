@@ -16,6 +16,7 @@ import { listReferences, referenceState, renameReference, deleteReference, inser
 import { listModels, readModelEvents, openModel, canEditCurrent, getCurrentModelId } from '../../core/eventStore.js';
 import { canEdit } from '../sync/client.js';
 import { isBuildBook } from '../buildVersions/rules.js';
+import { byName } from '../../ui/byName.js';
 
 // Where "Add" goes: the open book when you can change it here; otherwise (on the bookshelves,
 // where no book is open, or a read-only or build book) you pick one
@@ -37,7 +38,7 @@ function openBookPicker(refId) {
   const ref = listReferences().find(r => r.id === refId);
   const books = listModels().filter(m => canEdit(m.id) && !isBuildBook(readModelEvents(m.id)))
     .map(m => ({ id: m.id, name: projectState(readModelEvents(m.id)).modelName || 'Untitled model' }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(byName);
   sheet(`
     <div class="sheet-title">Add "${escapeHtml(ref?.name || '')}" to <span class="bd-sheet-sub">a book you can edit here</span></div>
     ${books.length ? books.map(b => `
@@ -61,7 +62,7 @@ function summary(ref) {
 
 // From the board's +: which reference to add to the open model
 export function openReferencePicker() {
-  const refs = listReferences();
+  const refs = [...listReferences()].sort(byName);
   sheet(`
     <div class="sheet-title">From reference shelf</div>
     ${refs.length ? `

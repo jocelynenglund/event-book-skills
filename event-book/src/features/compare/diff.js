@@ -141,13 +141,17 @@ export function compareModels(plan, built) {
     }
     if (!b) return { ...row, status: 'missing', ...none() };
     // Scenarios: each planned one, with its test (by name) if there is one
+    // A test not passing yet (a generated spec, pending) is planned, not tested
     const tests = getScenariosForSlice(b.id, built);
+    const waiting = new Set(tests.filter(x => x.pending === 'not passing yet').map(x => x.id));
     const testByName = new Map(tests.map(x => [norm(x.name), x]));
     const matched = new Set();
     const scenarios = getScenariosForSlice(p.id, plan).map(x => {
       const test = testByName.get(norm(x.name));
       if (test) matched.add(test.id);
-      return { name: x.name, mustHave: !!x.mustHave, tested: !!test, mismatches: test ? mismatches(shape(x, plan), shape(test, built)) : [] };
+      const notPassingYet = !!test && waiting.has(test.id);
+      return { name: x.name, mustHave: !!x.mustHave, tested: !!test && !notPassingYet, notPassingYet,
+        mismatches: test && !notPassingYet ? mismatches(shape(x, plan), shape(test, built)) : [] };
     });
     const extraTests = tests.filter(x => !matched.has(x.id)).map(x => x.name);
     const pf = fieldsOf(p, plan), bf = fieldsOf(b, built);
@@ -155,8 +159,10 @@ export function compareModels(plan, built) {
     const fields = pf.size
       ? { missing: [...pf].filter(([k]) => !bf.has(k)).map(([, v]) => v), extra: [...bf].filter(([k]) => !pf.has(k)).map(([, v]) => v) }
       : { missing: [], extra: [] };
+    // Every test not passing yet: specs written, still to build
+    const pending = tests.length > 0 && tests.every(x => waiting.has(x.id));
     const issues = scenarios.some(x => x.mustHave && !x.tested) || scenarios.some(x => x.mismatches.length) || fields.missing.length || fields.extra.length;
-    return { ...row, status: issues ? 'differs' : 'built', builtChapter: chapterName(b, built), scenarios, extraTests, fields,
+    return { ...row, status: pending ? 'pending' : issues ? 'differs' : 'built', builtChapter: chapterName(b, built), scenarios, extraTests, fields,
       ...(pair.renamed ? { renamed: { from: mainName(p, plan), to: mainName(b, built) } } : {}) };
   });
 
@@ -174,6 +180,7 @@ export function compareModels(plan, built) {
       planned: rows.length,
       built: rows.filter(r => r.status === 'built' || r.status === 'differs').length,
       missing: rows.filter(r => r.status === 'missing').length,
+      pending: rows.filter(r => r.status === 'pending').length,
       maybe: rows.filter(r => r.status === 'maybe').length,
       new: extra.length,
       mustHaves: musts.length,

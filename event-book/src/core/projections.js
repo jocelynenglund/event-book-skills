@@ -46,6 +46,8 @@ export function projectState(eventStream = getEventStream()) {
     sliceDecisions: [], // compare: { sliceId, otherShelf, otherSliceName, same } (possible renames answered)
     edition: null,     // { published, edition, draft, commit, lastBuild } (features/editions/rules.js)
     follow: null,      // { app, followedBy }: the app whose build book this plan follows (features/buildVersions)
+    specs: {},         // sliceId → { app, at }: its refined scenarios written as pending specs (features/specs)
+    press: null,       // { stage: press | building | built, app, slices, sentBy, builder, fromCommit, build, back } (features/press)
     comments: {},      // id -> { id, sliceId, scenarioId, part, text, nickname, deviceId, at, resolved, resolvedBy, deleted }
     verdicts: {},      // edition -> scenarioId -> { verdict: works | fails, note, testedBy, at, sliceId } (the latest counts)
     pendingSlice: null
@@ -99,6 +101,12 @@ export function projectState(eventStream = getEventStream()) {
       case EventTypes.ElementExternalSet:
         if (state.elements[event.data.elementId]) {
           state.elements[event.data.elementId].external = !!event.data.external;
+        }
+        break;
+
+      case EventTypes.ElementTableSet:
+        if (state.elements[event.data.elementId]) {
+          state.elements[event.data.elementId].table = !!event.data.table;
         }
         break;
         
@@ -370,6 +378,32 @@ export function projectState(eventStream = getEventStream()) {
         state.follow = null;
         break;
 
+      case EventTypes.PlanSentToPress:
+        state.press = { stage: 'press', app: event.data.app || null, slices: event.data.slices || [], sentBy: event.data.sentBy || null,
+          at: event.timestamp || null, builder: null, fromCommit: null, build: null, back: null };
+        break;
+
+      case EventTypes.PressStopped:
+        state.press = null;
+        break;
+
+      case EventTypes.PlanCheckedOutForBuild:
+        if (state.press) Object.assign(state.press, { stage: 'building', builder: event.data.builder || null, fromCommit: event.data.fromCommit || null, since: event.timestamp || null });
+        break;
+
+      case EventTypes.BuildAttached:
+        if (state.press) state.press.build = { ...event.data };
+        break;
+
+      case EventTypes.PlanCheckedInWithBuild:
+        if (state.press) Object.assign(state.press, { stage: 'built', back: { ...event.data } });
+        break;
+
+      case EventTypes.SpecsGenerated:
+      case EventTypes.SpecsRegenerated:
+        (event.data.slices || []).forEach(id => { (state.specs ||= {})[id] = { app: event.data.app || null, at: event.timestamp || null }; });
+        break;
+
       case EventTypes.SliceBuiltCleared:
         if (state.slices[event.data.sliceId]) Object.assign(state.slices[event.data.sliceId], { built: false, builtCommit: null });
         break;
@@ -406,6 +440,7 @@ export function projectState(eventStream = getEventStream()) {
           name: event.data.name,
           type: event.data.scenarioType,
           source: event.data.source || null,   // where its test is: { file, line }
+          pending: event.data.pending || null, // a generated spec not built yet: 'not passing yet' | 'passing'
           given: [],
           when: null,
           then: null

@@ -28,6 +28,7 @@ export function openScenariosSheet(sliceId, { readOnly = false } = {}) {
     <div class="sheet-title">Scenarios <span class="bd-sheet-sub">${escapeHtml(sliceTitle(slice, state))}</span>
       ${scenarios.some(s => scenarioHasIds(s, state)) ? `<button class="bd-ids-toggle" data-board-action="scn-ids" data-slice="${slice.id}" data-read-only="${readOnly ? 1 : 0}" aria-pressed="${idsHidden()}">${idsHidden() ? 'Show ids' : 'Hide ids'}</button>` : ''}
     </div>
+    <button class="sheet-btn secondary bd-slice-cm" data-board-action="scn-comment" data-slice="${slice.id}">💬 ${openOn(state, slice.id, null) ? `${openOn(state, slice.id, null)} open on the slice` : 'Comment on the slice'}</button>
     ${scenarios.length ? `<div class="bd-scns">${scenarios.map(scn => `
       <details class="bd-scn">
         <summary>${scn.mustHave ? '<span class="must-star" title="Must have">★</span> ' : ''}${escapeHtml(scn.name || 'Scenario')}${openOn(state, slice.id, scn.id) ? ` <span class="bd-scn-cmcount">💬 ${openOn(state, slice.id, scn.id)}</span>` : ''}</summary>
@@ -50,7 +51,7 @@ export function onSheetAction(a, t) {
     return true;
   }
   if (a === 'scn-comment') {
-    openThread(t.dataset.slice, t.dataset.scenario);
+    openThread(t.dataset.slice, t.dataset.scenario || null);
     return true;
   }
   if (a === 'scn-edit') {

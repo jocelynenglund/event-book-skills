@@ -11,6 +11,7 @@ import { showToast } from '../../ui/toast.js';
 import { toastWithUndo } from '../undo/command.js';
 import { secondTap } from '../../ui/secondTap.js';
 import { openPropertySheet } from '../properties/sheet.js';
+import { openThread } from '../comments/sheet.js';
 import { deleteElement } from '../deleteElement/command.js';
 import { showActions } from '../connect/actionSheet.js';
 import { removeFromSlice, sliceProcessor, isTrigger, setTrigger, setTodo, setElementFlow } from '../board/command.js';
@@ -64,6 +65,13 @@ export function openElementMenu(elementId, sliceId = null) {
       <div class="sheet-option-text">
         <div class="sheet-option-title">${element.external ? 'Mark as internal' : 'Mark as external'}</div>
         <div class="sheet-option-desc">${element.external ? 'Happens in this system (orange)' : 'Comes from another system (yellow)'}</div>
+      </div>
+    </div>
+    <div class="sheet-option" onclick="window.EventPad.menuToggleTable()">
+      <div class="sheet-option-icon bd-type-icon-table${element.table ? ' on' : ''}">▦</div>
+      <div class="sheet-option-text">
+        <div class="sheet-option-title">${element.table ? 'Not a legacy table' : 'Mark as legacy table'}</div>
+        <div class="sheet-option-desc">${element.table ? 'A real event again (orange)' : 'A table in an old database, read as events (shadowy orange)'}</div>
       </div>
     </div>` : '';
 
@@ -158,6 +166,10 @@ export function openElementMenu(elementId, sliceId = null) {
     ${todoOptions}
     ${triggerToggle}
     ${externalToggle}
+    ${currentSliceId ? `<div class="sheet-option" onclick="window.EventPad.menuComment()">
+      <div class="sheet-option-icon" style="background: var(--surface-hover);">💬</div>
+      <div class="sheet-option-text"><div class="sheet-option-title">Comment</div><div class="sheet-option-desc">On this slice, for whoever reads the plan</div></div>
+    </div>` : ''}
     <div class="sheet-option" onclick="window.EventPad.menuProperties()">
       <div class="sheet-option-icon" style="background: var(--surface-hover);">📝</div>
       <div class="sheet-option-text">
@@ -286,6 +298,21 @@ export function menuToggleExternal() {
   const element = projectState().elements[currentElementId];
   if (!element) return;
   appendEvent(EventTypes.ElementExternalSet, { elementId: element.id, external: !element.external });
+  render();
+}
+
+// While planning: a comment on the slice this sticky is in (its thread)
+export function menuComment() {
+  hideAllSheets();
+  const sliceId = currentSliceId;
+  if (sliceId) setTimeout(() => openThread(sliceId, null), 150);
+}
+
+export function menuToggleTable() {
+  hideAllSheets();
+  const element = projectState().elements[currentElementId];
+  if (!element) return;
+  appendEvent(EventTypes.ElementTableSet, { elementId: element.id, table: !element.table });
   render();
 }
 

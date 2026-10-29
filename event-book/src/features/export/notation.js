@@ -49,7 +49,7 @@ function sliceLines(slice, state) {
   const reads = linked('context', 'from', 'to'), on = linked('trigger', 'to', 'from');
   const note = [screen ? `screen: ${screen.name}` : '', processor ? `automation: ${processor.name}` : '', on.length ? `on ${on.join(', ')}` : ''].filter(Boolean).join(' · ');
   commands.forEach(c => out.push(`${actor ? `${actor},` : ''}C: ${sticky(c)}${reads.length ? ` [${reads.join(', ')}]` : ''}${note ? `  # ${note}` : ''}`));
-  events.forEach(e => out.push(`${commands.length ? '  ' : ''}E: ${sticky(e)}${e.external ? '  # external' : ''}`));
+  events.forEach(e => out.push(`${commands.length ? '  ' : ''}E: ${sticky(e)}${e.external ? '  # external' : ''}${e.table ? '  # legacy table' : ''}`));
   return out;
 }
 

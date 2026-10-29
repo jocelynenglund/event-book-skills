@@ -4,6 +4,7 @@ export const EventTypes = {
   ElementCreated: 'ElementCreated',
   ElementDeleted: 'ElementDeleted',
   ElementExternalSet: 'ElementExternalSet', // an event that comes from another system
+  ElementTableSet: 'ElementTableSet',       // an event that is really a legacy table (read as events), shadowy orange { elementId, table }
   ConnectionRemoved: 'ConnectionRemoved',
   ElementRenamed: 'ElementRenamed',
   ElementTodoSet: 'ElementTodoSet',
@@ -36,10 +37,18 @@ export const EventTypes = {
   SliceRefinedCleared: 'SliceRefinedCleared',
   SliceMarkedBuilt: 'SliceMarkedBuilt',       // done: confirmed against a model built from the tests { sliceId, commit }
   SliceBuiltCleared: 'SliceBuiltCleared',
+  PlanSentToPress: 'PlanSentToPress',         // the owner's final go: its refined slices are to be built { app, slices: [sliceId], sentBy }
+  PressStopped: 'PressStopped',               // taken back from the press before a builder took it {}
+  PlanCheckedOutForBuild: 'PlanCheckedOutForBuild', // a builder took it { app, builder, fromCommit }
+  BuildAttached: 'BuildAttached',             // the deploy's build edition, attached to the plan being built { app, edition, commit, build, scenarios, repo, workflow }
+  PlanCheckedInWithBuild: 'PlanCheckedInWithBuild', // back with its build: built slices Done { edition, commit, done, missing }
+  SpecsGenerated: 'SpecsGenerated',          // refined slices written as pending specs in the app's repo { app, repo, language, slices: [sliceId], files: [{ path, hash }] }
+  SpecsRegenerated: 'SpecsRegenerated',       // the same, again after the slices changed: untouched files rewritten, hand-edited ones proposed
   SliceMarkedReady: 'SliceMarkedReady',       // older models: read as SliceMarkedRefined
   SliceReadyCleared: 'SliceReadyCleared',     // older models: read as SliceRefinedCleared
   EditionPublished: 'EditionPublished',       // the whole book, every slice done and a build compared: frozen { edition, commit }
   NextDraftStarted: 'NextDraftStarted',       // a copy of a published book, to change { fromEdition, edition, draft, fromModel }
+  BookReplacedFromImport: 'BookReplacedFromImport', // an import of the same book took its place; the snapshot before it holds the import, the history the old content { fileName, from, matchedBy }
   UsageImported: 'UsageImported',             // a build book gets an app's usage for a window (features/usage); the book stays published { app, at, since, days, total, counts, unmatched }
   BuildFollowed:'BuildFollowed',             // a plan follows an app's build book: its newest edition marks Done { app, followedBy }
   BuildUnfollowed: 'BuildUnfollowed',         // it stops; Done stays { app }
@@ -105,15 +114,17 @@ export const typeIcons = {
   processor: '⚙️'
 };
 
-// Label for an element, telling external events (from another system) apart
+// Label for an element, telling external events (from another system) and legacy tables apart
 export function elementLabel(el) {
   if (el.type === 'readModel' && el.list) return 'Read model · list';
+  if (el.type === 'event' && el.table) return 'Legacy table';
   return el.type === 'event' && el.external ? 'External event' : typeLabels[el.type];
 }
 
-// data-external attribute for colouring external events yellow
+// data-external / data-table attributes: external events yellow, legacy tables a shadowy orange
 export function externalAttr(el) {
-  return el.type === 'event' && el.external ? ' data-external="true"' : '';
+  if (el.type !== 'event') return '';
+  return `${el.external ? ' data-external="true"' : ''}${el.table ? ' data-table="true"' : ''}`;
 }
 
 // Element type labels

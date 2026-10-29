@@ -4,11 +4,12 @@
 // { app, at, since, days, total, counts: { "<StoredEventType>": n } }). Import Usage appends them to the
 // app's build book as UsageImported { app, at, since, days, total, counts, unmatched }; the newest is the
 // book's usage. A count belongs to the model's event of the same name (normalised: lowercase letters and
-// digits, so "OrderPlaced" is "Order placed"); a slice's usage is the sum over its events: a change slice's
-// own, the ones that feed a view. Decision code takes plain histories and states: no store calls.
+// digits, so "OrderPlaced" is "Order placed"); a change's or an automation's usage is the sum over the events
+// it records, each event counted once (so chapters add up to the real total). A view records nothing: it has
+// no count, only what feeds it. Decision code takes plain histories and states: no store calls.
 // ===========================================
 
-import { projectState, sliceTitle } from '../../core/projections.js';
+import { projectState, sliceTitle, getOrderedSlices } from '../../core/projections.js';
 import { buildAt, isBuildBook } from '../buildVersions/rules.js';
 
 const IMPORTED = 'UsageImported';
@@ -42,17 +43,56 @@ export function usageFor(events, used) {
   return { events: [{ type: IMPORTED, data: { app: used.app || null, at: used.at, since: used.since || null, days: used.days ?? null, total, counts, unmatched } }] };
 }
 
-// SV: Slice Usage — { sliceId: n }, the window's count for each slice ({} without usage)
+const countsByName = usage => {
+  const byName = new Map();
+  Object.entries(usage?.counts || {}).forEach(([k, n]) => byName.set(normalName(k), (byName.get(normalName(k)) || 0) + n));
+  return byName;
+};
+// The events a slice records: a change's or an automation's own (an automation's trigger is read, not recorded)
+const recorded = (slice, state) => slice.elements.map(id => state.elements[id])
+  .filter(e => e?.type === 'event' && !(slice.type === 'AU' && state.connections.some(c => c.from === e.id && c.relation === 'trigger')))
+  .map(e => normalName(e.name));
+// Each event belongs to the first change or automation (board order) that records it, so it counts once
+function owners(state) {
+  const owner = new Map();
+  getOrderedSlices(state).forEach(slice => {
+    if (slice.type === 'SV') return;
+    recorded(slice, state).forEach(name => { if (!owner.has(name)) owner.set(name, slice.id); });
+  });
+  return owner;
+}
+
+// SV: Slice Usage — { sliceId: n }, the window's count for each change and automation: the events it
+// records, each event counted once (its first recorder in board order). Views read and record nothing,
+// so they have no count (not in the map): they show what feeds them instead (View Fed By). {} without usage.
 export function sliceUsage(state, usage) {
   if (!usage) return {};
-  const byName = new Map();
-  Object.entries(usage.counts || {}).forEach(([k, n]) => byName.set(normalName(k), (byName.get(normalName(k)) || 0) + n));
+  const byName = countsByName(usage);
+  const owner = owners(state);
   const out = {};
-  Object.values(state.slices).forEach(slice => {
-    const names = new Set(slice.elements.map(id => state.elements[id]).filter(e => e?.type === 'event').map(e => normalName(e.name)));
-    out[slice.id] = [...names].reduce((sum, name) => sum + (byName.get(name) || 0), 0);
+  getOrderedSlices(state).forEach(slice => {
+    if (slice.type === 'SV') return;
+    out[slice.id] = [...new Set(recorded(slice, state))].filter(name => owner.get(name) === slice.id).reduce((sum, name) => sum + (byName.get(name) || 0), 0);
   });
   return out;
+}
+
+// SV: View Fed By — for a view, the slices that record the events it reads, with their counts:
+// [{ sliceId, title, n }] (biggest first; [] without usage or for a slice that isn't a view)
+export function viewFedBy(state, usage, sliceId) {
+  const slice = state.slices[sliceId];
+  if (!usage || slice?.type !== 'SV') return [];
+  const byName = countsByName(usage);
+  const owner = owners(state);
+  const per = new Map();
+  [...new Set(slice.elements.map(id => state.elements[id]).filter(e => e?.type === 'event').map(e => normalName(e.name)))].forEach(name => {
+    const from = owner.get(name) || null;
+    const key = from || `event:${name}`;
+    const cur = per.get(key) || { sliceId: from, title: from ? sliceTitle(state.slices[from], state) : name, n: 0 };
+    cur.n += byName.get(name) || 0;
+    per.set(key, cur);
+  });
+  return [...per.values()].sort((a, b) => b.n - a.n);
 }
 
 // SV: Chapter Usage — { chapterId: n }, the sum over each chapter's slices ({} without usage)
@@ -90,8 +130,9 @@ export function usageInsight(events) {
   return {
     edition: build.edition, commit: build.commit, build: build.build, slices: slices.length, scenarios: Object.keys(state.scenarios).length,
     usage: usage ? { since: usage.since, at: usage.at, days: usage.days, total: usage.total, keys: Object.keys(usage.counts || {}).length, unmatched: (usage.unmatched || []).length } : null,
-    busiest: usage ? slices.map(row).filter(r => r.n > 0).sort((a, b) => b.n - a.n).slice(0, BUSIEST) : [],
+    // Only changes and automations count (a view records nothing); each event once
+    busiest: usage ? slices.filter(s => s.id in n).map(row).filter(r => r.n > 0).sort((a, b) => b.n - a.n).slice(0, BUSIEST) : [],
     chapters: Object.entries(byChapter).map(([chapterId, c]) => ({ chapterId, name: state.chapters[chapterId].name, n: c })).sort((a, b) => b.n - a.n),
-    unused: usage ?slices.map(row).filter(r => !r.n).map(r => r.title) : []
+    unused: usage ? slices.filter(s => s.id in n).map(row).filter(r => !r.n).map(r => r.title) : []
   };
 }

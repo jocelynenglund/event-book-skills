@@ -38,6 +38,8 @@ function stepsOf(all) {
 // What a step did, in words: its first event, with a name from the model where there is one
 function describe(step) {
   const first = step.events[0];
+  const replaced = step.events.find(e => e.type === EventTypes.BookReplacedFromImport);
+  if (replaced) return `Replaced from an import${replaced.data?.fileName ? ` (${replaced.data.fileName})` : ''}`;
   if (first.type === EventTypes.ModelSnapshot) return 'Imported (a snapshot)';
   const state = projectState(events.slice(0, step.end));
   const d = first.data || {};

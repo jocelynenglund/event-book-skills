@@ -9,6 +9,9 @@
 import { projectState, getBoardGroups, sliceTitle, sliceFlow, getScenariosForSlice } from '../../core/projections.js';
 import { showToast } from '../../ui/toast.js';
 import { sliceComments } from '../comments/read.js';
+import { sourceUrl } from '../../core/source.js';
+import { getEventStream } from '../../core/eventStore.js';
+import { isBuildBook } from '../buildVersions/rules.js';
 
 // Chapters sit side by side, left to right like the model reads, with a gap between
 const ROW_H = 320, COL_W = 450, TIMELINE_X = 562, TIMELINE_Y = 393, CHAPTER_GAP = 400;
@@ -29,10 +32,28 @@ const FLOW = { SC: [null, 'down', 'down'], SV: [null, 'up', 'up'], AU: [null, 'd
 // A slice's note: its description, then its open comments as a list (eventmodelers.ai notes are markdown)
 const PART = { given: 'Given', when: 'When', then: 'Then' };
 const NOTE_YELLOW = '#f1c40f';
-function noteFor(slice, state) {
-  const open = sliceComments(state, slice.id).threads.filter(t => !t.resolved);
+// In a build book (it knows its repo and commit): "Code: file:line" links to the code, and a Spec
+// line links the first scenario's test. Links only, never the code: the repo may be private.
+const md = (file, line, url) => `[\`${file}${line ? `:${line}` : ''}\`](${url})`;
+function withCode(slice, state) {
+  let linked = false;
+  const text = (slice.description || '').replace(/(^|\n)Code: ([^\s:]+)(?::(\d+))?/g, (m, pre, file, line) => {
+    const url = sourceUrl(state, file, line);
+    if (!url) return m;
+    linked = true;
+    return `${pre}**Code:** ${md(file, line, url)}`;
+  });
+  if (!linked) return text;
+  const specs = getScenariosForSlice(slice.id, state).map(s => s.source).filter(src => src?.file);
+  const url = specs[0] && sourceUrl(state, specs[0].file, specs[0].line);
+  return url ? `${text}\n**Spec:** ${md(specs[0].file, specs[0].line, url)}${specs.length > 1 ? ` and ${specs.length - 1} more` : ''}` : text;
+}
+// A build book carries its code links, not its comments: the conversation goes on in eventmodelers.ai
+function noteFor(slice, state, build = false) {
+  const open = build ? [] : sliceComments(state, slice.id).threads.filter(t => !t.resolved);
   const comments = open.map(t => `- **${t.nickname}**${[t.scenarioName, PART[t.part]].filter(Boolean).map(x => ` · ${x}`).join('')}: ${t.text}`);
-  const text = [slice.description || '', comments.length ? `${slice.description ? '\n' : ''}### 💬 Comments\n${comments.join('\n')}` : ''].filter(Boolean).join('\n');
+  const about = withCode(slice, state);
+  const text = [about, comments.length ? `${about ? '\n' : ''}### 💬 Comments\n${comments.join('\n')}` : ''].filter(Boolean).join('\n');
   return text ? { description: text, ...(comments.length ? { backgroundColor: NOTE_YELLOW } : {}) } : null;
 }
 
@@ -72,7 +93,7 @@ function elementMeta(el) {
 // An example value as Nebulit shows it: text
 const exampleText = v => v == null ? undefined : typeof v === 'object' ? JSON.stringify(v) : String(v);
 
-export function buildEventmodelersBoard(state = projectState()) {
+export function buildEventmodelersBoard(state = projectState(), { build = isBuildBook(getEventStream()) } = {}) {
   const boardId = uid();
   const boardName = state.modelName || 'EventPAD model';
   const nodes = [], edges = [], metadata = {};
@@ -82,7 +103,7 @@ export function buildEventmodelersBoard(state = projectState()) {
   const groups = getBoardGroups(state).filter(g => g.slices.length);
   const eventRows = Math.min(EVENT_ROWS_MAX, Math.max(1, ...Object.values(state.slices).map(s =>
     s.elements.filter(id => state.elements[id]?.type === 'event').length)));
-  const hasNotes = Object.values(state.slices).some(s => noteFor(s, state));
+  const hasNotes = Object.values(state.slices).some(s => noteFor(s, state, build));
 
   let nextX = TIMELINE_X;
   const chapters = groups.map((g, ci) => {
@@ -135,7 +156,7 @@ export function buildEventmodelersBoard(state = projectState()) {
       }
 
       // What the slice is about, as a note under it
-      const note = hasNotes && noteFor(slice, state);
+      const note = hasNotes && noteFor(slice, state, build);
       if (note) {
         const noteId = uid();
         nodes.push({ id: noteId, type: 'markdown', position: { x: 0, y: 0 }, data: {}, parentId: timelineId, modifiedAt: STAMP });

@@ -194,20 +194,22 @@ function drawCase(ctx, p, s) {
 }
 
 // sections: [{ kind, plaque, books: [{ name, published, cloth, height, ready, meta, mark }] }], empty ones left out
-// → a canvas of the bookcase to share
-export async function renderBookcaseImage({ sections }) {
+// → a canvas of the bookcase to share. square: 1080 × 1080, the books smaller (more to a row) to fit
+export async function renderBookcaseImage({ sections, square = false }) {
   const icon = await ready();
   const shown = sections.filter(sec => sec.books.length);
   const total = shown.reduce((t, sec) => t + sec.books.length, 0);
   const HEAD = 170, FOOT = 90;
   // As big as reads well; a very full bookcase is drawn smaller (more books to a row) to keep it a sane height
+  const limit = square ? W : MAX_H, least = square ? 0.3 : 0.8;
   let plans, s = 1.5;
-  for (; s >= 0.8; s = Math.round((s - 0.1) * 10) / 10) {
+  for (; s >= least; s = Math.round((s - 0.05) * 100) / 100) {
     plans = shown.map(sec => planSection(sec, s));
-    if (HEAD + FOOT + plans.reduce((t, p) => t + p.height * s, 0) <= MAX_H) break;
+    if (HEAD + FOOT + plans.reduce((t, p) => t + p.height * s, 0) <= limit) break;
   }
-  if (s < 0.8) { s = 0.8; plans = shown.map(sec => planSection(sec, s)); }
-  const height = Math.ceil(HEAD + FOOT + (plans.length ? plans.reduce((t, p) => t + p.height * s, 0) : 240));
+  if (s < least) { s = least; plans = shown.map(sec => planSection(sec, s)); }
+  const content = Math.ceil(HEAD + FOOT + (plans.length ? plans.reduce((t, p) => t + p.height * s, 0) : 240));
+  const height = square ? W : content;
 
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = height;
@@ -223,13 +225,15 @@ export async function renderBookcaseImage({ sections }) {
   ctx.font = `700 22px ${MONO}`; ctx.fillStyle = MUTED;
   ctx.fillText(`${total} ${total === 1 ? 'BOOK' : 'BOOKS'}`, M + 110, 122);
 
+  // A square still too full at the smallest size: the shelves squeezed to fit between head and foot
+  const fit = square && content > W ? (W - HEAD - FOOT) / (content - HEAD - FOOT) : 1;
   let y = HEAD;
   plans.forEach(p => {
     ctx.save();
-    ctx.translate(M, y); ctx.scale(s, s);
+    ctx.translate(M + (1 - fit) * (W - 2 * M) / 2, y); ctx.scale(s * fit, s * fit);
     drawCase(ctx, p, s);
     ctx.restore();
-    y += p.height * s;
+    y += p.height * s * fit;
   });
   if (!plans.length) {
     ctx.fillStyle = MUTED; ctx.font = `700 30px ${DISPLAY}`; ctx.textAlign = 'center';

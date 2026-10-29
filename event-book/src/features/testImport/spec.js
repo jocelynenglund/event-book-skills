@@ -3,8 +3,11 @@
 // The export is what tests/gwt (and ItsyBIT.EventStore.Testing) write with GWT_EXPORT:
 // per test file, a list of scenarios
 //   { chapter, title, given: [{ type, data }], when, whenData?,
-//     then: { events } | { rejected } | { nothing } | { view, value } }
+//     then: { events } | { rejected } | { nothing } | { view, value },
+//     pending?, passing? }   (a generated spec "not built yet": not passing yet shows its planned Then)
 // Pipelines combine an app's files into one: { app, commit, createdAt, files: [[…], …] }.
+// An optional events catalog says what the scenarios can't: { "<Type>": { external, table, from } }
+// (external: another system records it; table: a legacy table read as events).
 // Each command a scenario runs is a state change (with the events it really recorded),
 // each read model it reads is a state view (with the events it was given).
 // Pure: no browser, no files. Used by ☰ → Import and tools/model-from-code/eventpad.mjs.
@@ -26,8 +29,8 @@ const values = data => Object.fromEntries(Object.entries(data || {}).map(([k, v]
 // name, description: the model's; eventTypes: the app's event catalog (default: every
 // event the export mentions); codeFile(kind, name): where a command / view lives, for the
 // slice's note; order: chapter titles in the order they should come
-export function specFromScenarios(scenarios, { name, description, eventTypes, codeFile, order = [], repo = null, commit = null, createdAt = null, build = null } = {}) {
-  const types = eventTypes || [...new Set(scenarios.flatMap(s => [...(s.given || []), ...(s.then?.events || [])].map(e => e.type)))];
+export function specFromScenarios(scenarios, { name, description, eventTypes, codeFile, order = [], repo = null, commit = null, createdAt = null, build = null, catalog = null } = {}) {
+  const types = [...new Set([...(eventTypes || scenarios.flatMap(s => [...(s.given || []), ...(s.then?.events || [])].map(e => e.type))), ...Object.keys(catalog || {})])];
 
   // Fields: every key the tests recorded for an event type
   const fields = {};
@@ -92,7 +95,8 @@ export function specFromScenarios(scenarios, { name, description, eventTypes, co
     else if (isView) thenSpec = { kind: 'readModel', name: then.view,
       values: then.value && typeof then.value === 'object' && !Array.isArray(then.value) ? values(then.value) : { shows: text(then.value) } };
     slice.scenarios.push({ title, type: isView ? 'SV' : 'SC', given, when: isView ? null : { command: sliceName, values: values(s.whenData) }, then: thenSpec,
-      ...(s.spec?.file ? { source: { file: s.spec.file, line: s.spec.line || null } } : {}) });
+      ...(s.spec?.file ? { source: { file: s.spec.file, line: s.spec.line || null } } : {}),
+      ...(s.pending ? { pending: s.passing ? 'passing' : 'not passing yet' } : {}) });
   }
   chapters.forEach(c => c.slices.forEach(sl => sl.fields.forEach(f => delete f.unsure)));
   if (order.length) chapters.sort((a, b) => (order.indexOf(a.title) + 1 || 99) - (order.indexOf(b.title) + 1 || 99));
@@ -102,7 +106,8 @@ export function specFromScenarios(scenarios, { name, description, eventTypes, co
     description: description ?? `${name || 'This app'}'s event model, built from its Given / When / Then tests: the commands and read models they run, with the events they really recorded.`,
     chapters,
     ...(repo || commit ? { source: { repo, commit, createdAt, build } } : {}),
-    events: Object.fromEntries(types.map(t => [t, { label: label(t), fields: Object.entries(fields[t] || {}).map(([n, type]) => ({ name: n, type })) }]))
+    events: Object.fromEntries(types.map(t => [t, { label: label(t), fields: Object.entries(fields[t] || {}).map(([n, type]) => ({ name: n, type })),
+      ...(catalog?.[t]?.external ? { external: true } : {}), ...(catalog?.[t]?.table ? { table: true } : {}), ...(catalog?.[t]?.from ? { from: String(catalog[t].from) } : {}) }]))
   };
   const mentioned = new Set(scenarios.flatMap(s => [...(s.given || []), ...(s.then?.events || [])].map(e => e.type)));
   const report = {

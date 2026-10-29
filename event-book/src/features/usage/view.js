@@ -8,7 +8,7 @@
 // ===========================================
 
 import { getEventStream } from '../../core/eventStore.js';
-import { latestUsage, sliceUsage, chapterUsage, heatOf, usageInsight, eventUsage } from './rules.js';
+import { latestUsage, sliceUsage, chapterUsage, heatOf, usageInsight, eventUsage, viewFedBy } from './rules.js';
 import { escapeHtml } from '../board/view.js';
 import { openBoardSheet } from '../board/sheets/shared.js';
 import { hideAllSheets } from '../../ui/sheets.js';
@@ -29,6 +29,11 @@ const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st',
 // The slice page: how much it was used, and where it stands among the slices ('' without usage)
 export function sliceUsageLine(slice, state) {
   const { usage, n } = usageOf(state);
+  if (usage && slice.type === 'SV') {
+    const fed = viewFedBy(state, usage, slice.id);
+    return fed.length ? `<p class="sp-usage fed">📊 A view counts nothing itself. Fed by ${fed.map(f => f.sliceId
+      ? `<button class="sp-fed" data-slice-page="open" data-slice="${f.sliceId}">${escapeHtml(f.title)}</button> (${f.n})` : `${escapeHtml(f.title)} (${f.n})`).join(', ')} in the last ${usage.days || 30} days</p>` : '';
+  }
   if (!usage || !(slice.id in n)) return '';
   const count = n[slice.id], days = usage.days || 30;
   if (!count) return `<p class="sp-usage unused">📊 Unused in the last ${days} days</p>`;
@@ -45,9 +50,18 @@ export function eventUsageChip(el, state) {
   return `<span class="sp-used ${count ? '' : 'unused'}">${count ? `${count}× in ${usage.days || 30}d` : `none in ${usage.days || 30}d`}</span>`;
 }
 
+// A view has no count of its own: what feeds it ("fed by Add Wish (48), Create Party (130)")
+const fedText = fed => fed.map(f => `${f.title} (${f.n})`).join(', ');
+function fedBadge(slice, state, usage) {
+  const fed = viewFedBy(state, usage, slice.id);
+  if (!fed.length) return '';
+  return `<span class="us-badge fed" title="Fed by ${escapeHtml(fedText(fed))} in the last ${usage.days || 30} days">fed by ${escapeHtml(fed[0].title)} ${fed[0].n}${fed.length > 1 ? ` +${fed.length - 1}` : ''}</span>`;
+}
+
 // A slice's badge ('' when the book has no usage)
 export function usageBadge(slice, state) {
   const { usage, n, max } = usageOf(state);
+  if (usage && slice.type === 'SV') return fedBadge(slice, state, usage);
   if (!usage || !(slice.id in n)) return '';
   const count = n[slice.id], days = usage.days || 30;
   const heat = heatOf(count, max);

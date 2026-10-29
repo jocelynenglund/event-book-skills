@@ -4,27 +4,91 @@
   "title": "Build Book export",
   "description": "What our Given / When / Then tests write for one build. A description, not a standard: it may change without notice.",
   "oneOf": [
-    { "$ref": "#/$defs/build" },
-    { "type": "array", "items": { "$ref": "#/$defs/scenario" } }
+    {
+      "$ref": "#/$defs/build"
+    },
+    {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scenario"
+      }
+    }
   ],
   "$defs": {
     "build": {
       "type": "object",
-      "required": ["app", "files"],
+      "required": [
+        "app",
+        "files"
+      ],
       "properties": {
-        "app": { "type": "string", "minLength": 1 },
-        "repo": { "type": ["string", "null"] },
-        "commit": { "type": ["string", "null"] },
-        "build": { "type": ["string", "null"] },
-        "createdAt": { "type": ["string", "null"] },
+        "app": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "build": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "files": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["file", "scenarios"],
+            "required": [
+              "file",
+              "scenarios"
+            ],
             "properties": {
-              "file": { "type": "string" },
-              "scenarios": { "type": "array", "items": { "$ref": "#/$defs/scenario" } }
+              "file": {
+                "type": "string"
+              },
+              "scenarios": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/scenario"
+                }
+              }
+            }
+          }
+        },
+        "events": {
+          "type": "object",
+          "description": "What the scenarios can't say about an event type, by its name: it comes from another system (external), or it is a legacy table read as events (table).",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "external": {
+                "type": "boolean",
+                "description": "Another system records it (Event Book draws it yellow)"
+              },
+              "table": {
+                "type": "boolean",
+                "description": "A table in an old database, read as events (a shadowy orange)"
+              },
+              "from": {
+                "type": "string",
+                "description": "Which system or database"
+              }
             }
           }
         }
@@ -32,38 +96,149 @@
     },
     "event": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
-        "type": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
         "data": {},
-        "book": { "type": "string", "description": "Which book the event is in, for a view over several" }
+        "book": {
+          "type": "string",
+          "description": "Which book the event is in, for a view over several"
+        }
       }
     },
     "location": {
       "type": "object",
-      "properties": { "file": { "type": "string" }, "line": { "type": "integer" } }
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        }
+      }
     },
     "scenario": {
       "type": "object",
-      "required": ["chapter", "title", "given", "when", "then"],
+      "required": [
+        "chapter",
+        "title",
+        "given",
+        "when",
+        "then"
+      ],
       "properties": {
-        "chapter": { "type": "string" },
-        "title": { "type": "string" },
-        "given": { "type": "array", "items": { "$ref": "#/$defs/event" } },
-        "when": { "type": ["string", "null"], "description": "The command's name, or null for a view" },
-        "whenData": { "type": ["object", "null"] },
-        "then": {
-          "oneOf": [
-            { "type": "object", "required": ["events"], "properties": { "events": { "type": "array", "items": { "$ref": "#/$defs/event" } } } },
-            { "type": "object", "required": ["rejected"], "properties": { "rejected": { "type": "string" } } },
-            { "type": "object", "required": ["nothing"], "properties": { "nothing": { "const": true } } },
-            { "type": "object", "required": ["view"], "properties": { "view": { "type": "string" }, "value": {} } }
+        "chapter": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "given": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "when": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The command's name, or null for a view"
+        },
+        "whenData": {
+          "type": [
+            "object",
+            "null"
           ]
         },
-        "spec": { "$ref": "#/$defs/location" },
+        "then": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "events"
+              ],
+              "properties": {
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/event"
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "rejected"
+              ],
+              "properties": {
+                "rejected": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "nothing"
+              ],
+              "properties": {
+                "nothing": {
+                  "const": true
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "view"
+              ],
+              "properties": {
+                "view": {
+                  "type": "string"
+                },
+                "value": {}
+              }
+            }
+          ]
+        },
+        "spec": {
+          "$ref": "#/$defs/location"
+        },
         "slice": {
           "type": "object",
-          "properties": { "type": { "type": "string" }, "method": { "type": "string" }, "file": { "type": "string" }, "line": { "type": "integer" } }
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "method": {
+              "type": "string"
+            },
+            "file": {
+              "type": "string"
+            },
+            "line": {
+              "type": "integer"
+            }
+          }
+        },
+        "pending": {
+          "type": "boolean",
+          "description": "A generated spec still marked 'not built yet'"
+        },
+        "passing": {
+          "type": "boolean",
+          "description": "With pending: whether it passes already (then its mark can go)"
+        },
+        "pendingReason": {
+          "type": "string"
         }
       }
     }

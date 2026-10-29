@@ -94,6 +94,10 @@ The rules:
   - `{ "nothing": true }`: accepted, nothing changed;
   - `{ "view": "Name", "value": … }`: what the view shows (an object, or a list of rows).
 - **`given`** lists earlier events, oldest first, each `{ "type", "data" }`.
+- **`events`** (optional, beside `app` and `files`) says what the scenarios can't: an event another system records (`{ "external": true, "from": "Stripe" }`, drawn yellow), or a table in a legacy database read as events (`{ "table": true, "from": "the old ERP" }`, a shadowy orange). Name every such event there, keyed by its type, even if no scenario uses it yet:
+  ```json
+  "events": { "Payment Received": { "external": true, "from": "Stripe" }, "Orders Tbl": { "table": true, "from": "the old ERP" } }
+  ```
 - Don't add `repo`, `commit` or `build`: those mark a file as built by tests. A proposal has none.
 - The JSON Schema is at https://buildbook.itsybit.se/build-export.schema.json. Check the file against it if you can.
 
@@ -123,6 +127,7 @@ When the person mentions a team, several people or a workshop, offer this route 
 ## Good to know
 
 - One command per state-change slice, one view per state-view slice. Name them exactly the same in every scenario: the name *is* the slice.
+- **External systems and legacy databases:** when the design reacts to another system (a payment provider, a partner's webhook) or reads an old system's tables, model what comes in as events and mark them in `events` (`external`, or `table` for a legacy table), so the book shows what's this system's own and what isn't.
 - **Automations** (something that reacts to an event or a schedule and sends a command, like "hold the tool for the next reserver after it's returned" or "mark overdue loans every morning") aren't their own kind in this file yet. Write the command they send as its own slice, and put the trigger in its scenarios' titles so it shows in the book: `"title": "After a return, the tool is held for the first reserver"`, `"title": "Each morning, loans past due are marked overdue"`. Repeat it in your notes.
 - Keep a first proposal small: the main journey and its refusals, 3–6 chapters. People add the rest in the book.
 - This is a format Event Book reads, not a standard. It may change; the spec page is the reference.

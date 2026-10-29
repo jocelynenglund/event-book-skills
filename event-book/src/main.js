@@ -22,6 +22,7 @@ import { initSharedClient, sharedOf } from './features/shared/client.js';
 import { initStatusFilter } from './features/filter/status.js';
 import { initUsageStats } from './features/usage/view.js';
 import { initSettings, settingsHtml } from './ui/settings.js';
+import { initProductUsage } from './features/productUsage/view.js';
 import { exportNotation } from './features/export/notation.js';
 import { reviewOf, canAddScenariosHere } from './features/review/client.js';
 import { readyToChange } from './features/sync/client.js';
@@ -37,6 +38,8 @@ function openTitleMenu() {
   const inLibrary = isKept(id) && account() && !isReviewerAccount();
   const canKeep = !isKept(id) && !isReviewerAccount();
   const follows = followMenu();
+  // A plan's final go: Send to press (its refined slices are built next), or take it back
+  const press = !follows || isReviewerAccount() ? null : pressMenu();
   const option = (action, icon, title, desc, attr = 'data-title-action') => `
     <div class="sheet-option" ${attr}="${action}" data-model="${id}">
       <div class="sheet-option-icon" style="background: var(--surface-hover);">${icon}</div>
@@ -51,6 +54,9 @@ function openTitleMenu() {
     ${!follows ? '' : follows.following
       ? option('unfollow', '⏹', `Stop following ${escapeHtml(follows.app)}’s build`, 'What is Done stays as it is')
       : option('follow', '🔗', `Follow ${escapeHtml(follows.app || 'an app')}’s build`, 'Each new build marks the slices it has as Done')}
+    ${!press ? '' : press.stop
+      ? option('press-stop', '⏹', 'Stop the press', 'Take it back before a builder takes it')
+      : option('press', '🖨', 'Send to press', press.refused ? escapeHtml(press.refused) : `Your go: its ${press.count} refined ${press.count === 1 ? 'slice is' : 'slices are'} built next`)}
     ${!canKeep ? '' : account()
       ? option('keep', '☁', 'Keep in your library', 'Saved to the server and checked out here; then invite reviewers and send review links')
       : option('keep', '☁', 'Sign in to keep it in your library', 'Then invite reviewers and send review links', 'data-sync-action')}
@@ -67,6 +73,7 @@ document.addEventListener('click', e => {
   else if (a === 'people') setTimeout(() => document.dispatchEvent(new CustomEvent('eventpad:people', { detail: id })), 150);
   else if (a === 'review') setTimeout(() => document.dispatchEvent(new CustomEvent('eventpad:reviews', { detail: id })), 150);
   else if (a === 'follow' || a === 'unfollow') readyToChange(id).then(why => why ? toastTitle(why) : a === 'follow' ? followFromMenu() : stopFollowing());
+  else if (a === 'press' || a === 'press-stop') readyToChange(id).then(why => why ? toastTitle(why) : pressFromMenu(a === 'press'));
   else if (a === 'plan') startPlan().then(why => why ? toastTitle(why) : window.EventPad.showOutline());
   else if (a === 'keep') keepOnServer(id)
     .then(r => { toastTitle(`Kept in your library${r?.up ? ` (${r.up} events sent)` : ''}`); setTimeout(openTitleMenu, 150); })
@@ -74,6 +81,7 @@ document.addEventListener('click', e => {
 });
 import { initPeopleView } from './features/shared/view.js';
 import { initSlicePage } from './features/slicePage/view.js';
+import { initImportMatch } from './features/testImport/matchSheet.js';
 import { initLive } from './features/live/live.js';
 import { initCompare, openComparePicker } from './features/compare/view.js';
 import { initSync } from './features/sync/client.js';
@@ -85,6 +93,7 @@ import { initLibrary } from './features/library/view.js';
 import { initBuildVersions } from './features/buildVersions/view.js';
 import { initFollow, followMenu, followFromMenu, stopFollowing, isOpenBuild, startPlanFromThisBuild as startPlan } from './features/buildVersions/follow.js';
 import { escapeHtml } from './features/board/view.js';
+import { pressMenu, pressFromMenu } from './features/press/view.js';
 import { initShareImage } from './features/shareImage/sheet.js';
 import { initShareLink } from './features/shareLink/link.js';
 import { promptSliceName, dispatchNameSlice, dismissSlicePrompt, initNameSlice } from './features/nameSlice/sheet.js';
@@ -93,7 +102,7 @@ import { toggleEventLog, copyEvent, copyAllEvents, exportModel, importModel } fr
 import { exportForEventmodelers } from './features/eventmodelers/export.js';
 import { openPropertySheet, saveProperty, deleteProperty, initProperties, confirmPropagate, skipPropagate } from './features/properties/sheet.js';
 import { deleteElement } from './features/deleteElement/command.js';
-import { openElementMenu, menuRename, menuProperties, menuConnect, menuDelete, menuRemoveFromSlice, menuToggleExternal, menuToggleTrigger, menuToggleTodo, menuToggleList, menuUpdatedBy, menuProcessorInputs, menuShowElement, menuSetElementFlow } from './features/elementMenu/sheet.js';
+import { openElementMenu, menuRename, menuProperties, menuConnect, menuDelete, menuRemoveFromSlice, menuToggleExternal, menuToggleTable, menuComment, menuToggleTrigger, menuToggleTodo, menuToggleList, menuUpdatedBy, menuProcessorInputs, menuShowElement, menuSetElementFlow } from './features/elementMenu/sheet.js';
 import { 
   openAddScenarioSheet, 
   openEditScenarioSheet, 
@@ -184,6 +193,8 @@ window.EventPad = {
   menuDelete,
   menuRemoveFromSlice,
   menuToggleExternal,
+  menuToggleTable,
+  menuComment,
   menuToggleTrigger,
   menuToggleTodo,
   menuToggleList,
@@ -386,6 +397,7 @@ async function init() {
   initSharedClient();
   initPeopleView();
   initReviewView();
+  initImportMatch();
   // The header's height (two rows, and taller when the title wraps or fonts load): the board fills what's left
   const header = document.querySelector('.header');
   const headerHeight = () => document.documentElement.style.setProperty('--header-h', header.offsetHeight + 'px');
@@ -413,6 +425,7 @@ async function init() {
   initStatusFilter(renderFeed);
   initUsageStats();
   initSettings({ openSheet: html => openBoardSheet(html), render: renderFeed });
+  initProductUsage({ openSheet: html => openBoardSheet(html), settings: settingsHtml });
   // A review that lets you add scenarios: the board's ＋ Scenario shows on a book that is otherwise read-only
   onRender(() => document.body.classList.toggle('can-add-scenarios', canAddScenariosHere()));
   // ⋮ by a book's title: its name and description (not on the bookshelves, nor on a book you review for someone else)

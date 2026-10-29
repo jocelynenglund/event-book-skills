@@ -16,7 +16,7 @@ import { adoptBuiltSlice, keepPlannedSlice, settleCompare } from '../editions/co
 export function doneToConfirm(plan, built) {
   if (!built?.modelSource?.commit) return [];
   return compareModels(plan, built).rows
-    .filter(r => r.plan && r.built && r.status !== 'maybe' && r.plan.refined && !r.plan.built)
+    .filter(r => r.plan && r.built && r.status !== 'maybe' && r.status !== 'pending' && r.plan.refined && !r.plan.built)
     .map(r => ({ sliceId: r.plan.id, title: r.title, builtSliceId: r.built.id }));
 }
 

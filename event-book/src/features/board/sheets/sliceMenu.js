@@ -13,6 +13,7 @@ import { nameSlice, describeSlice, deleteSlice, moveSlice, nameModel, describeMo
 import { sliceTypeLabels, escapeHtml } from '../view.js';
 import { onEnter, openBoardSheet } from './shared.js';
 import { openShareSheet } from '../../shareImage/sheet.js';
+import { openThread } from '../../comments/sheet.js';
 import { isReadOnly } from '../../readOnly/sheet.js';
 
 // ---------- Slice menu ----------
@@ -62,6 +63,13 @@ export function openSliceMenu(sliceId) {
       <div class="bd-move-row">
         <button class="sheet-btn secondary" data-board-action="insert" data-before="${sliceId}">＋ Slice before</button>
         <button class="sheet-btn secondary" data-board-action="insert" data-after="${sliceId}">＋ Slice after</button>
+      </div>
+      <div class="sheet-option" data-board-action="slice-comment">
+        <div class="sheet-option-icon" style="background: var(--surface-hover);">💬</div>
+        <div class="sheet-option-text">
+          <div class="sheet-option-title">Comment on this slice</div>
+          <div class="sheet-option-desc">About the slice as a whole, not one scenario</div>
+        </div>
       </div>
       <div class="sheet-option" data-board-action="share-slice">
         <div class="sheet-option-icon" style="background: var(--surface-hover);">↗</div>
@@ -217,6 +225,11 @@ export function onSheetAction(a, t) {
     const id = menuSliceId;
     hideAllSheets();
     showSlicePage(id);
+  }
+  else if (a === 'slice-comment') {
+    const id = menuSliceId;
+    hideAllSheets();
+    setTimeout(() => openThread(id, null), 150);
   }
   else if (a === 'share-slice') {
     const id = menuSliceId;

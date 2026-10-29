@@ -23,6 +23,7 @@ const LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.
 let apiBase = LOCAL ? 'http://localhost:5199/api/eventpad'
   : 'https://labsapi-hmeva5cfhdfkejhz.westeurope-01.azurewebsites.net/api/eventpad';
 export function setSyncApi(base) { apiBase = base; }   // tests
+export const syncApiBase = () => apiBase;
 
 const ACCOUNT_KEY = 'eventpad_account';      // { token, email, accountId, admin }
 const KEPT_KEY = 'eventpad_kept';            // modelId → { serverId, position, synced: [event ids], holder }
@@ -289,17 +290,27 @@ export async function syncAll() {
       // stays here as a private book, and nothing is pushed back, which would keep it again
       else if (k.position > 0 || k.synced?.length) gone.push(id);
     });
+    const replaced = [];
     if (gone.length) {
       const links = kept();
       gone.forEach(id => {
         // A replaced build book with nothing unsent goes too: the new one is in the library
         const events = readModelEvents(id);
-        if (isBuildBook(events) && events.every(e => links[id].synced?.includes(e.id))) deleteModel(id);
+        if (isBuildBook(events) && events.every(e => links[id].synced?.includes(e.id))) {
+          replaced.push([...events].reverse().find(e => e.type === 'ModelNamed')?.data?.name);
+          deleteModel(id);
+        }
         delete links[id];
       });
       write(KEPT_KEY, links);
     }
     notify();
+    // …and its replacement comes down in its place, so the shelf keeps the book (the newer build)
+    const here = new Set(Object.entries(kept()).map(([id, k]) => k.serverId || id));
+    for (const name of replaced.filter(Boolean)) {
+      const row = rows.find(r => r.name === name && !here.has(r.modelId));
+      if (row) { try { await download(row.modelId); } catch (e) { /* it stays under "not on this device" */ } }
+    }
   } catch (e) { /* offline: the shelves say so */ }
   const ids = Object.keys(kept()).filter(id => listModels().some(m => m.id === id));
   for (const id of ids) { try { await syncModel(id); } catch (e) { /* shown on the shelf */ } }

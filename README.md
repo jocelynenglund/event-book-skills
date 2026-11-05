@@ -25,6 +25,16 @@ If your Claude Code version doesn't take the `owner/repo` shorthand, use the ful
 
 Then ask your agent to design something ("Design a tool library where members borrow and reserve tools"), or to make the tests write the build ("Make our tests write the build book").
 
+## What's new in 0.2
+
+- **Start red.** The build skill now begins from the plan: one spec per slice, grouped by chapter, each beside a stub that throws `NotBuiltYet`. Those scenarios are pending (CI stays green) until you run them red on purpose, then go green one slice per commit.
+- **Refusals with reasons.** A refused command is asserted with its reason, never as "nothing happened".
+- **Views have no clock and no caller.** The plan skill keeps dates and access rules out of views, where they can't be tested.
+- **Happy case first** for every command.
+- **Two books when the rules live in two places**, such as a page and the server that checks it again.
+
+A worked example of all of it, from model to production one commit at a time: [Count me in](https://github.com/jocelynenglund/count-me-in) and its write-up, [From idea to the shelf](https://itsybit-agent.github.io/itsybot-devlog/2026/11/04/from-idea-to-the-shelf/).
+
 ## What's here
 
 | | |

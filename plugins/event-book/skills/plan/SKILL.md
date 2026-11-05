@@ -30,7 +30,7 @@ Names:
 
 Each slice gets **Given / When / Then scenarios**: the events so far, the command (or the view), and what happens. Cover:
 
-1. **The happy path:** the command records its events.
+1. **The happy path, first:** every command's first scenario is its happy case. Given nothing (or the fewest events it needs), when the command, then its event.
 2. **Every refusal:** each rule that can say no, with the reason a person would read (`"Sold out today"`, `"Only the organizer can cancel"`).
 3. **Nothing changes** when a repeat is harmless (`then: { "nothing": true }`).
 4. **Each view:** given some events, what it shows (rows for a list).
@@ -38,6 +38,7 @@ Each slice gets **Given / When / Then scenarios**: the events so far, the comman
 Use realistic, small example values (ids like `o1`, names like `Alex`), the same ones across a chapter so the story holds together. Every field a command takes appears in `whenData`, and every field an event carries appears in its `data`. Fields are the model's data, so don't leave them out.
 
 - **Time:** when a rule depends on "now" (due dates, expiry), pass it in: `"whenData": { "today": "2026-11-03" }`. Never rely on a hidden clock.
+- **Views have no clock and no caller.** A view only gets the events. If what it shows depends on today ("closed once the closing date has passed") or on who is asking ("only the owner sees the names"), show the plain fact (`closesOn`) and let the screen compare it, and put access rules on the command or the server. A view scenario that needs `today` or a caller can't be tested as written.
 - **Given** holds every event the decision depends on, from any chapter (a loan's `Tool Borrowed` when returning it).
 - **Views** may show an empty list (`"value": []`), list rows in the order the screen shows them, and include derived fields (`"status": "overdue"`).
 
@@ -112,7 +113,7 @@ After the file, list in a few lines:
 - the rules you assumed (each one is a refusal scenario they can delete);
 - what you left out on purpose.
 
-The person refines the model in Event Book, and that's where it becomes the plan.
+The person refines the model in Event Book, and that's where it becomes the plan. When they're happy with it, the **build** skill starts from these exact scenarios as failing tests, before any code exists.
 
 ## 5. Working as a team: eventmodelers.ai
 

@@ -8,7 +8,7 @@
     {
       "name": "event-book",
       "source": "./plugins/event-book",
-      "description": "Propose features and systems as event models with Given / When / Then scenarios, written as one file Event Book opens."
+      "description": "Propose features and systems as event models with Given / When / Then scenarios, written as one eventbook-plan/1 file Event Book opens."
     }
   ],
   "metadata": {

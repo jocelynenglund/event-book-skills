@@ -1,10 +1,20 @@
 # The format
 
-What Given / When / Then tests write, what a plan proposes, and what Event Book and Build Book read.
+Three files: a **plan** (what is proposed, `eventbook-plan/1`), a **build** (what Given / When / Then tests write) and, optionally, **usage**. Event Book and Build Book read them.
 
-> A description, not a standard. It's what our own tests happen to write today. Borrow from it, change it and write your own. It can change without notice. Check a file against [build-export.schema.json](build-export.schema.json) (and [build-usage.schema.json](build-usage.schema.json) for usage).
+> A description, not a standard. It's what our own tests happen to write today. Borrow from it, change it and write your own. It can change without notice. Check a build file against [build-export.schema.json](build-export.schema.json) (and [build-usage.schema.json](build-usage.schema.json) for usage).
 
-## One file per build (or per plan)
+## The plan file (`eventbook-plan/1`)
+
+The plan skill writes one file in the format Event Book publishes for plans, `eventbook-plan/1`: chapters of steps (`do`, `see`, `auto`), each with its Given / When / Then scenarios. Event Book opens it with ☰ → Import.
+
+- Schema (JSON Schema 2020-12): https://eventbook.itsybit.se/plan.schema.json
+- Guide for agents (the method and every key): https://eventbook.itsybit.se/llms.txt
+- Complete example: https://eventbook.itsybit.se/plan.example.json, and [`examples/tool-library-plan.json`](../../../examples/tool-library-plan.json) in this repo
+
+It is not the build file below: a plan has no `app`, `files`, `commit` or `repo`, and uses `{ "format", "name", "chapters" }` instead. The sections below describe the **build file** (what the tests write) and the usage file. They share scenario ideas with the plan (given, when, then, a refusal with its reason) but not their shape.
+
+## The build file (one per build)
 
 ```json
 {
@@ -22,9 +32,9 @@ What Given / When / Then tests write, what a plan proposes, and what Event Book 
 | Field | Required | What it is |
 |---|---|---|
 | `app` | yes | The app's name. Builds of the same app are editions of one book. |
-| `files` | yes | One entry per test file (or per chapter, in a plan): `{ file, scenarios }`. |
+| `files` | yes | One entry per test file: `{ file, scenarios }`. |
 | `repo` | no | `owner/name` on GitHub (or a full URL). With it, the book links to the code and each edition's commit. |
-| `commit` | no | The commit the build ran on. Tells editions apart. **A plan has none**: no `commit` means a plan, not a build. |
+| `commit` | no | The commit the build ran on. Tells editions apart. Event Book treats a file with no `commit` as a plan in this older shape; new plans use `eventbook-plan/1` above. |
 | `build` | no | The CI run's number, as a string. |
 | `createdAt` | no | When the file was written (ISO 8601). |
 | `events` | no | What the scenarios can't say about an event type, by its name: it's external, or a legacy table. See [External events and legacy tables](#external-events-and-legacy-tables). |
@@ -121,5 +131,5 @@ Only counts per event type: no ids, no data, nothing about who did what.
 ## File names
 
 - A build: `<date>-<app>-<short sha>-built.json`, plus a `latest-built.json` copy.
-- A plan: `<app>-plan.json` (or `<date>-<app>-plan.json`).
+- A plan (`eventbook-plan/1`): `<app>-plan.json` (or `<date>-<app>-plan.json`).
 - Usage: `latest-used.json`.

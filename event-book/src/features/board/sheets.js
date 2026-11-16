@@ -21,6 +21,7 @@ import { openEventsSheet, onSheetAction as eventsAction } from './sheets/events.
 import { openScenariosSheet, onSheetAction as scenariosAction } from './sheets/scenarios.js';
 import { openModelNameSheet, openSliceInfo, openSliceMenu, onSheetAction as sliceMenuAction } from './sheets/sliceMenu.js';
 import { onSheetAction as processorAction } from './sheets/processor.js';
+import { openFindSheet, onSheetAction as findAction, onSheetInput as findInput } from './sheets/find.js';
 import { openReferencePicker } from '../references/sheet.js';
 
 export { openNewSliceSheet } from './sheets/newSlice.js';
@@ -29,7 +30,10 @@ export { openCellSheet } from './sheets/cell.js';
 export { openSliceMenu, openReorderSheet, openModelNameSheet } from './sheets/sliceMenu.js';
 export { openUpdatedByPicker, openProcessorInputs } from './sheets/processor.js';
 import { openThread, openCommentsList } from '../comments/sheet.js';
+import { isLiterature } from '../literature/rules.js';
+import { revealInBook } from '../literature/view.js';
 import { canAddScenariosHere } from '../review/client.js';
+import { openProgressHistory } from '../buildProgress/sheet.js';
 
 // ---------- Wiring ----------
 
@@ -71,6 +75,7 @@ function handleBoardClick(e) {
   else if (action === 'element') openElementMenu(el, slice);
   else if (action === 'slice-menu') openSliceMenu(slice);
   else if (action === 'slice-page') showSlicePage(slice);
+  else if (action === 'progress-history') openProgressHistory(slice);
   else if (action === 'slice-info') openSliceInfo(slice);
   else if (action === 'toggle-gwt') toggleGwtLane();
   else if (action === 'comment') openThread(slice, t.dataset.scenario || null);
@@ -88,12 +93,12 @@ function handleBoardClick(e) {
 
 // Not checked out here: a tap reads (a sticky's sheet, the slice page, the scenarios);
 // what would change the model does nothing. Folding, flows and ⓘ are left to the board.
-const readOnlyReads = new Set(['fold', 'show-flow', 'toggle-gwt', 'slice-info', 'slice-page', 'comment', 'next-comment']);
+const readOnlyReads = new Set(['chapter-menu', 'fold', 'show-flow', 'toggle-gwt', 'slice-info', 'slice-page', 'progress-history', 'comment', 'next-comment']);
 function readOnlyTap(action, t) {
   const { slice, el } = t.dataset;
   if (readOnlyReads.has(action)) return false;
   if (action === 'element' || action === 'element-read') openElementReadSheet(el, slice);
-  else if (action === 'slice-menu') showSlicePage(slice);
+  else if (action === 'slice-menu') openSliceMenu(slice);   // only sharing
   else if (action === 'events') openEventsSheet(slice, { readOnly: true });
   else if (action === 'givens') openEventsSheet(slice, { readOnly: true, givens: true });
   else if (action === 'gwt-drawer') openScenariosSheet(slice, { readOnly: !canAddScenariosHere() });
@@ -106,6 +111,7 @@ function readOnlyTap(action, t) {
 
 // A comment picked in the drawer: unfold its chapter, scroll the lane to it and flash it
 function revealComment(c) {
+  if (isLiterature(projectState())) { revealInBook(c); return; }   // a literature book has no stickies: its Read / Outline
   const chapterId = projectState().slices[c.sliceId]?.chapterId;
   if (chapterId && isChapterFolded(chapterId)) { toggleChapterFolded(chapterId); render(); }
   const el = document.querySelector(`.bd-cm[data-cm-anchor="${c.commentId}"]`);
@@ -116,7 +122,7 @@ function revealComment(c) {
 }
 
 // Taps inside the board sheet: each sheet module answers its own
-const sheetActions = [readSheetAction, newSliceAction, chapterAction, cellAction, eventsAction, scenariosAction, sliceMenuAction, processorAction];
+const sheetActions = [readSheetAction, newSliceAction, chapterAction, cellAction, eventsAction, scenariosAction, sliceMenuAction, processorAction, findAction];
 
 function handleSheetClick(e) {
   const t = e.target.closest('[data-board-action]');
@@ -152,6 +158,7 @@ export function initBoard() {
   });
   document.getElementById('board').addEventListener('click', handleBoardClick);
   document.getElementById('boardStats')?.addEventListener('click', e => {
+    if (e.target.closest('[data-find-open]')) { openFindSheet(); return; }
     if (e.target.closest('[data-replay]')) { openReplay(); return; }
     if (e.target.closest('[data-comments-open]')) { openCommentsList(revealComment); return; }
     const t = e.target.closest('[data-fold-all]');
@@ -162,6 +169,7 @@ export function initBoard() {
     document.getElementById('board')?.scrollTo({ left: 0 });
   });
   document.getElementById('boardSheetContent').addEventListener('click', handleSheetClick);
+  document.getElementById('boardSheetContent').addEventListener('input', findInput);
   // An untitled model's title asks for a name; once it has one, renaming is in the
   // library (the shelf's ⋯ → Name & description). In the library it just says eventPAD.
   document.getElementById('modelTitle').addEventListener('click', () => {

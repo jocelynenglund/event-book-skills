@@ -42,7 +42,8 @@ export function chapterEvents(state, chapterId, { target = null, name = null } =
     if (!same) {
       add(EventTypes.ElementCreated, { elementId: id, elementType: el.type, name: el.name });
       if (el.external) add(EventTypes.ElementExternalSet, { elementId: id, external: true });
-      if (el.table) add(EventTypes.ElementTableSet, { elementId: id, table: true });
+      if (el.table) add(EventTypes.ElementTableSet, { elementId: id, table: el.table });
+      if (el.published) add(EventTypes.ElementPublishedSet, { elementId: id, published: true, ...(el.to?.length ? { to: el.to } : {}) });
       if (el.todo) add(EventTypes.ElementTodoSet, { elementId: id, todo: true });
       if (el.list) add(EventTypes.ElementListSet, { elementId: id, list: true });
     }
@@ -105,6 +106,7 @@ export function chapterEvents(state, chapterId, { target = null, name = null } =
     if (th?.type === 'event' && elMap[th.eventId]) add(EventTypes.ThenEventSet, { scenarioId, eventId: elMap[th.eventId], values: th.values || {} });
     else if (th?.type === 'readModel' && elMap[th.readModelId]) add(EventTypes.ThenReadModelSet, { scenarioId, readModelId: elMap[th.readModelId], values: th.values || {}, ...(th.rows ? { rows: th.rows } : {}) });
     else if (th?.type === 'rejection') add(EventTypes.ThenRejectionSet, { scenarioId, reason: th.reason });
+    else if (th?.type === 'nothing') add(EventTypes.ThenNothingSet, { scenarioId, reason: th.reason });
   });
 
   return out;

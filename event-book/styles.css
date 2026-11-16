@@ -1176,9 +1176,11 @@ body:not(.board-mode) .wn-pill { bottom: 92px; }
 }
 .bd-chapter::before { left: 0; }
 .bd-chapter::after { right: 0; }
+/* A long name wraps instead of being cut to "1. Legacy …" in a one-slice chapter; the full name is
+   the header's title too */
 .bd-chapter-name {
   font: 700 22px var(--font-display); line-height: 1.1;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: normal; overflow-wrap: break-word; min-width: 0; flex: 0 1 auto;
 }
 .bd-chapter-count {
   font: 700 10px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase;
@@ -1479,13 +1481,17 @@ body:has(input:focus, textarea:focus) .wn-pill { display: none; }
 .board { --col-w: min(58vw, 232px); --spine-w: 54px; }
 .bd-chapter { display: flex; align-items: baseline; gap: 6px; padding-left: 0; }
 .bd-chapter-fold {
-  align-self: center; flex-shrink: 0;
+  align-self: flex-start; margin-top: 2px; flex-shrink: 0;
   width: 24px; height: 24px; border-radius: 50%; padding: 0; cursor: pointer;
   background: var(--surface); border: 1px solid var(--border); color: var(--text);
   font: 700 15px/1 var(--font-body);
 }
+/* One slice wide: the name takes the whole width and "1 slice" goes under it */
+.bd-chapter-narrow .bd-chapter-label { flex: 1 1 auto; grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; }
+.bd-chapter-narrow .bd-chapter-count { grid-column: 2; }
+/* ⋮, the name (shrinks and wraps when the chapter is narrow), the count: all on the name's first line */
 .bd-chapter-label {
-  display: flex; align-items: baseline; gap: 10px; min-width: 0;
+  display: grid; grid-template-columns: auto minmax(0, max-content) auto; align-items: baseline; gap: 10px; min-width: 0;
   background: none; border: none; padding: 0; cursor: pointer; color: var(--text); text-align: left;
 }
 .bd-spine {
@@ -1561,7 +1567,7 @@ body .wn-pill, body:not(.board-mode) .wn-pill { bottom: calc(84px + env(safe-are
 
 /* Chapter header: fold ‹ · name · ＋ add a slice to this chapter */
 .bd-chapter-add {
-  align-self: center; flex-shrink: 0; margin-left: auto;
+  align-self: flex-start; flex-shrink: 0; margin-left: auto;
   width: 26px; height: 26px; border-radius: 8px; padding: 0; cursor: pointer;
   background: var(--surface); border: 1px solid var(--border); color: var(--text);
   font: 700 14px/1 var(--font-body);
@@ -1611,7 +1617,7 @@ body .wn-pill, body:not(.board-mode) .wn-pill { bottom: calc(84px + env(safe-are
 .ol-chapter .ol-step { margin-left: auto; }
 
 /* Model description box */
-.bd-model-desc { min-height: 84px; resize: vertical; line-height: 1.4; font-size: 16px; }
+.bd-model-desc { min-height: 84px; max-height: min(60vh, calc(var(--vv-h, 100dvh) * 0.5)); overflow-y: auto; resize: none; line-height: 1.4; font-size: 16px; }
 #bdModelName { margin-bottom: 4px; }
 
 /* ═══════════ LIBRARY: SHELVES OF BOOKS ═══════════ */
@@ -1621,6 +1627,8 @@ body .wn-pill, body:not(.board-mode) .wn-pill { bottom: calc(84px + env(safe-are
   font: 700 12px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text);
 }
 body.library-mode #detailsBtn, body.library-mode #shareBtn { display: none; }
+/* A slice page goes back with ‹ (to where it was opened, landing on the slice): no Board / Outline switch beside it */
+body.slice-mode #detailsBtn { display: none; }
 body.library-mode .model-title, .model-title.named { cursor: default; }
 
 .library-view { max-width: 640px; margin: 0 auto; padding: 14px 16px 120px; }
@@ -2177,6 +2185,12 @@ html.opening-link #boardView, html.opening-link #libraryView, html.opening-link 
 .sp-table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
 .sp-table th, .sp-table td { border-bottom: 1px solid var(--hair); padding: 5px 8px; text-align: left; vertical-align: top; }
 .sp-table th { font: 500 11px var(--font-mono); color: var(--muted); }
+.sp-convo { max-width: 100%; }
+.sp-thread { margin-bottom: 14px; }
+.sp-thread-about { font: 600 12px var(--font-body); color: var(--ink-soft); margin: 0 0 2px; overflow-wrap: anywhere; }
+.sp-thread-reply { margin: 6px 0 0 14px; }
+.sp-convo-box { margin-top: 14px; }
+.sp-convo .cm-box, .sp-convo .sheet-input { width: 100%; box-sizing: border-box; }
 .sp-add { width: 100%; min-height: 46px; border: 1.5px dashed var(--hair); border-radius: 10px; background: none; color: var(--ink); font: inherit; cursor: pointer; }
 .bd-open-slice { width: 100%; margin: 8px 0 4px; }
 @media (min-width: 720px) { .sp-step { grid-template-columns: 64px 1fr; gap: 10px; } .sp-kw { padding-top: 8px; } }
@@ -2259,6 +2273,9 @@ body.replaying #fab { display: none !important; }
 .cp-header { margin-bottom: 18px; }
 .cp-h1 { font: 700 24px/1.2 var(--font-display); margin: 6px 0 4px; overflow-wrap: anywhere; }
 .cp-h1 span { color: var(--muted); font-weight: 400; }
+.cp-hint { font: 500 11px var(--font-mono); color: var(--text-muted); vertical-align: middle; letter-spacing: .03em; }
+.cp-books { margin: 0 0 6px; font-size: 14px; color: var(--text-muted); overflow-wrap: anywhere; }
+.cp-books span { font-family: var(--font-mono); font-size: 12px; }
 .cp-sum { margin: 0 0 10px; color: var(--ink-soft); font-size: 15px; }
 .cp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .cp-chip { padding: 5px 11px; border-radius: 999px; border: 1px solid var(--hair); background: var(--card); color: var(--ink); font: 600 13px var(--font-body); cursor: pointer; }
@@ -2442,6 +2459,10 @@ body.board-mode:has(.bd-stats:not(:empty)) .fab-menu { bottom: calc(var(--stats-
 .bd-build.bd-ready { border-color: var(--text-muted); color: var(--text-muted); }
 .bd-build .ol-tick { width: 11px; height: 11px; }
 
+.no-scn { display: inline-block; margin-top: 4px; font: 600 10px/1.4 var(--font-body); color: var(--text-muted); letter-spacing: 0.02em; }
+.bd-head .no-scn { margin-left: 18px; }   /* clear of the ⋮ at the left */
+.ol-pills .no-scn { margin: 0 0 0 2px; align-self: center; }
+
 /* A reference book, open to read */
 .rb-book { display: grid; gap: 14px; margin: 10px 0 16px; }
 .rb-slice { border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; background: var(--surface); display: grid; gap: 8px; }
@@ -2567,14 +2588,23 @@ body.read-only #modelTitle { cursor: default; }
   background: var(--surface); color: var(--text); font: 700 14px/1 var(--font-body); cursor: pointer;
   display: grid; place-items: center; padding: 0; letter-spacing: 1px;
 }
-body.read-only .bd-more { display: none; }
 
 /* Tap reads, ⋮ edits: a kebab at the end of the slice title and on each sticky */
 .bd-head { position: relative; }
 /* ⋮ to the left of the title (slice headers, stickies, outline rows) */
 .bd-head-title { padding-left: 18px; padding-right: 0; }
+/* The ⋮ belongs to the title (bottom line, left of it), not to the header: usage and waived chips go
+   under the title in their own row, so they never land on it */
+.bd-head-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bd-head-namebox { position: relative; }
+.bd-head-namebox .bd-head-name { width: 100%; }
+.bd-head-chips {
+  display: flex; flex-direction: column; align-items: flex-start; padding: 0 0 0 18px; margin: 0;
+  background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0;
+}
+.bd-head .bd-head-chips .no-scn { margin-left: 0; }
 .bd-more {
-  position: absolute; left: 4px; bottom: 5px; z-index: 2;
+  position: absolute; left: -8px; bottom: -1px; z-index: 2;
   width: 26px; height: 30px; border-radius: 8px; border: none; background: transparent; color: var(--text-muted);
   font: 700 20px/1 var(--font-body); cursor: pointer; display: grid; place-items: center; padding: 0; letter-spacing: 0;
 }
@@ -2848,10 +2878,26 @@ body.library-mode .burger-bookshelves { display: none; }
 .rv-chip { white-space: nowrap; }
 
 /* ---------- Verifying a shipped edition ---------- */
-.ol-vd { display: inline-flex; gap: 4px; flex: none; align-self: flex-start; margin-top: 6px; }
-.ol-vd-btn { min-width: 36px; min-height: 32px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font: 700 15px/1 var(--font-body); color: var(--ink-soft); cursor: pointer; }
+.ol-vd { display: flex; align-items: flex-start; gap: 8px; flex: 0 0 210px; width: 210px; align-self: flex-start; margin-top: 6px; }
+.ol-vd-sum { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 0; border: 0; background: none; text-align: left; font: 600 13px/1.25 var(--font-body); color: var(--ink-soft); cursor: pointer; overflow-wrap: anywhere; }
+span.ol-vd-sum { cursor: default; }
+.ol-vd-sum.works .ol-vd-head { color: var(--readmodel); }
+.ol-vd-sum.fails .ol-vd-head { color: #c0392b; }
+.ol-vd-from { font-weight: 500; font-size: 12px; color: var(--text-muted); }
+.ol-vd-note { font-weight: 500; font-size: 12px; color: #c0392b; }
+.ol-vd-btns { display: inline-flex; gap: 6px; flex: none; margin-left: auto; }
+.ol-vd-btn { width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); font: 700 14px/1 var(--font-body); color: var(--ink-soft); cursor: pointer; }
 .ol-vd-btn.works.on { background: var(--readmodel); border-color: var(--readmodel); color: #fff; }
 .ol-vd-btn.fails.on { background: #c0392b; border-color: #c0392b; color: #fff; }
+.ol-slice-vd { font: 700 11px var(--font-body); white-space: nowrap; align-self: center; color: var(--text-muted); }
+.ol-slice-vd.works { color: var(--readmodel); }
+.ol-slice-vd.fails { color: #c0392b; }
+.ol-testers { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ol-tester { font-size: 14px; }
+.ol-tester.fails .ol-tester-v { color: #c0392b; }
+.ol-tester.works .ol-tester-v { color: var(--readmodel); }
+.ol-tester-at { font-size: 12px; color: var(--text-muted); }
+.ol-tester-note { margin-top: 2px; font-size: 13px; color: var(--ink-soft); }
 .ol-verify { margin: 4px 0 10px; padding: 8px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); font-size: 14px; }
 
 /* The bookshelves: the eventPAD brand in the header */
@@ -2983,6 +3029,8 @@ body.read-only.can-add-scenarios .bd-gwt-count.add { display: inline-block !impo
 
 /* Neat (☰ → Settings): every sticky and chip straight, in line */
 body.neat .bd-chip:nth-child(odd), body.neat .bd-chip:nth-child(even) { transform: none; }
+/* …and one plain sans throughout: no serif titles, no typewriter labels (the shelf's brass label keeps its own) */
+body.neat { --font-display: var(--font-body); --font-mono: var(--font-body); }
 
 /* A sticky's fields folded to a count (its read sheet → Fold on the board) */
 .bd-props-folded { opacity: 0.65; font-style: italic; }
@@ -3055,6 +3103,9 @@ body.library-mode .title-share { display: none; }
 .us-badge.unused { border-style: dashed; border-color: var(--text-muted); background: none; color: var(--text-muted); font-weight: 600; }
 .ol-main > .us-badge { grid-column: 1 / -1; justify-self: start; margin: 3px 0 1px; }
 .bd-head-title .us-badge { align-self: flex-start; }
+/* On the board it has its own line under the name (beside it, it squeezed the name); a long one is cut */
+.bd-head-usage { display: flex; margin-top: 4px; min-width: 0; }
+.bd-head-usage .us-badge { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* A build book's details: Built · Used */
 .us-insight { margin: 12px 0 4px; padding-top: 10px; border-top: 1px solid var(--border); }
@@ -3064,6 +3115,13 @@ body.library-mode .title-share { display: none; }
 .us-busy, .us-unused { list-style: none; margin: 0; padding: 0; }
 .us-busy li, .us-unused li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 14px; border-top: 1px solid var(--border); }
 .us-busy b { font-family: var(--font-mono); }
+/* Events used: the plain totals per event type, folded away; each with the changes that record it */
+.us-events { margin: 6px 0 8px; }
+.us-events summary { cursor: pointer; font-size: 13px; color: var(--text-muted); font-family: var(--font-mono); padding: 4px 0; }
+.us-event-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.us-event-list li { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; padding: 4px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.us-event-list b { font-family: var(--font-mono); }
+.us-event-list small { grid-column: 1 / -1; color: var(--text-muted); font-size: 12px; }
 .us-unused li { color: var(--text-muted); }
 .us-unmatched, .us-none { color: var(--text-muted); }
 
@@ -3211,9 +3269,11 @@ body:not(.library-mode) .header .title-share { flex: none; }
 .cp-planned-row { margin: 0.25rem 0 0 1rem; }
 .cp-planned-row.drift { color: var(--cp-minus, #a14a2a); }
 
-/* Desktop: the pages take most of the screen, not a phone-wide column */
+/* Desktop: the pages take most of the screen, not a phone-wide column. The outline is read
+   down the page, so it keeps a readable column with margins either side */
 @media (min-width: 1024px) {
-  .library-view, .overview-view, .details-view, .feed, .compare-view { max-width: min(92vw, 1600px); }
+  .library-view, .details-view, .feed, .compare-view { max-width: min(92vw, 1600px); }
+  .overview-view { max-width: min(92vw, 1040px); }
   .slice-view:not(.compare-view) { max-width: min(92vw, 1200px); }
 }
 
@@ -3275,3 +3335,371 @@ body:not(.library-mode) .header .title-share { flex: none; }
 .sp-ref[data-type="event"][data-table], .sp-sticky[data-type="event"][data-table] { --hint: var(--note-table); }
 .bd-type-icon-table { background: var(--note-event); }
 .bd-type-icon-table.on { background: var(--note-table); }
+
+/* Threads: replies under their thread; the board chat's outstanding threads */
+.cm-reply { margin: 6px 0 0 14px; padding-left: 10px; border-left: 2px solid var(--border); }
+.cm-reply .cm-meta { display: flex; align-items: center; gap: 6px; }
+.cm-replying { margin: 0 0 6px; }
+.cm-outstanding { margin-bottom: 12px; display: grid; gap: 6px; }
+
+/* Articles: a point's paragraphs (round two), and where the book is in its rounds */
+.sp-para { display: block; width: 100%; text-align: left; font: 16px/1.6 var(--font-body); color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 0 0 10px; cursor: pointer; white-space: pre-wrap; }
+.sp-para-by { display: block; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+.sp-para-edit textarea { width: 100%; font: 16px/1.6 var(--font-body); }
+.sp-para-actions { display: flex; gap: 8px; margin: 6px 0 12px; }
+.ol-para { display: block; margin-top: 6px; font: 14px/1.5 var(--font-body); color: var(--text); white-space: pre-wrap; }
+.ol-rounds { font-weight: 600; }
+
+/* The bookshelves' own header (title, catalog, sync, share, ＋ New) stays put while the shelves scroll;
+   the shelf chips sit pinned just under it */
+body.library-mode .lb-head { position: sticky; top: var(--header-h, 56px); z-index: 8; background: var(--bg); margin: 0 -16px; padding: 12px 18px 8px; }
+body.library-mode .lb-jump { top: calc(var(--header-h, 56px) + var(--lb-head-h, 56px)); }
+
+/* A folded chapter wears a band in itsyBIT crimson wrapped round the top of its spine. On a computer,
+   hovering (or tabbing to) the spine unwraps it: the band unrolls from its left end as a
+   ribbon with the name read the right way up. Phones tap the spine as before. */
+:root { --spine-band: #9b2335; --spine-band-dark: #7f1c2b; }   /* the itsyBIT logo's crimson */
+.bd-spine-wrap {
+  position: absolute; top: 7px; left: -2px; right: -2px; height: 14px; z-index: 2; pointer-events: none;
+  /* darker at both ends, where it turns round the spine's edges */
+  background:
+    linear-gradient(90deg, rgba(40, 10, 10, .35), transparent 4px, transparent calc(100% - 4px), rgba(40, 10, 10, .35)),
+    linear-gradient(180deg, var(--spine-band), var(--spine-band-dark));
+  border-radius: 2px;
+  box-shadow: 0 1px 2px rgba(60, 20, 10, .3);
+}
+.bd-spine-ribbon { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .bd-spine { overflow: visible; }
+  .bd-spine:hover, .bd-spine:focus-visible { z-index: 5; }
+  .bd-spine-ribbon {
+    display: flex; flex-direction: column; gap: 2px; position: absolute; top: 7px; left: -2px; z-index: 30;
+    max-width: 420px; width: max-content; padding: 9px 28px 9px 14px; text-align: left; pointer-events: none;
+    background: linear-gradient(180deg, var(--spine-band) 0%, var(--spine-band-dark) 100%); color: #fff4e0; font: 700 17px/1.25 var(--font-display);
+    clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 50%, 100% 100%, 0 100%);
+    box-shadow: 0 4px 10px rgba(60, 20, 10, .35);
+    transform-origin: left top; transform: scaleX(0); opacity: 0; transition: transform .24s cubic-bezier(.2, .8, .3, 1.2), opacity .1s;
+  }
+  .bd-spine-ribbon i { font: 600 11px var(--font-mono); font-style: normal; opacity: .8; letter-spacing: .04em; }
+  .bd-spine:hover .bd-spine-ribbon, .bd-spine:focus-visible .bd-spine-ribbon { transform: scaleX(1); opacity: 1; }
+  /* At the board's right edge it unrolls leftwards from the band's right end, notch on the left */
+  .bd-spine.ribbon-left .bd-spine-ribbon {
+    left: auto; right: -2px; transform-origin: right top; padding: 9px 14px 9px 28px; text-align: right; align-items: flex-end;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) { .bd-spine-ribbon { transition: opacity .12s; } }
+
+/* Tags: chips on the bookshelves that filter them, and the tags on a book's card */
+.lb-tags { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 8px 16px 2px; }
+.lb-tag-chip {
+  flex-shrink: 0; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: transparent;
+  color: var(--text-muted); font: 600 12.5px var(--font-body); cursor: pointer;
+}
+.lb-tag-chip span { font: 700 10.5px var(--font-mono); margin-left: 2px; opacity: 0.8; }
+.lb-tag-chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.lb-tag-row, .pf-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.lb-tag, .pf-tag { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-elevated); color: var(--text-muted); font: 600 12.5px var(--font-body); overflow-wrap: anywhere; }
+
+/* Velocity: slices built per day, a line under the bookshelves' header; tap for 30 days and each app */
+.vl { margin: 0 0 4px; font-family: var(--font-body); }
+.vl-line {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; max-width: 100%; box-sizing: border-box; padding: 5px 2px;
+  background: transparent; border: 0; color: var(--text-muted); font: 600 13px var(--font-body); text-align: left; cursor: pointer;
+}
+.vl-text { min-width: 0; }
+.vl-spark { flex-shrink: 0; fill: var(--accent); }
+.vl-spark .vl-zero { opacity: 0.3; }
+.vl-apps { list-style: none; margin: 2px 0 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: 600 13px var(--font-body); color: var(--text); }
+.vl-apps li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.vl-apps li span { min-width: 0; overflow-wrap: anywhere; }
+.vl-apps .vl-none { color: var(--text-muted); font-weight: 500; }
+
+/* A book's preface: its first page */
+.burger-item[hidden] { display: none; }
+.preface-view { max-width: 560px; margin: 0 auto; padding: 28px 22px 96px; box-sizing: border-box; font-family: var(--font-body); }
+.pf-page { background: var(--surface); border: 1px solid var(--border); border-radius: 4px 12px 12px 4px; padding: 30px 24px 28px; box-shadow: 0 1px 0 var(--border-light), 0 14px 30px -18px rgba(60, 40, 10, 0.4); }
+.pf-kicker { font: 700 11.5px var(--font-body); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+.pf-title { margin: 8px 0 14px; font: 700 26px/1.2 var(--font-body); color: var(--text); overflow-wrap: anywhere; }
+.pf-rule { width: 44px; height: 3px; border-radius: 2px; background: #9b2335; margin: 0 0 18px; }
+.pf-text { margin: 0 0 22px; font-size: 17px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.pf-start { display: block; width: 100%; min-height: 48px; margin-top: 8px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text); font: 700 16px var(--font-body); cursor: pointer; }
+
+/* ═══════════ PROP UP: a book turned cover out on a little brass stand, first in its shelf ═══════════ */
+.ed-book.propped { padding: 0 10px 6px 4px; margin-bottom: -5px; }
+/* The stand: a brass foot along the shelf and a wire leaning up behind the cover */
+.ed-book.propped::before {
+  content: ''; position: absolute; left: 14px; right: 18px; bottom: 0; height: 7px; border-radius: 2px; z-index: 1;
+  background: linear-gradient(180deg, #ecd48e, #8c6a22); box-shadow: 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+.ed-cover {
+  position: relative; z-index: 0; width: 118px; height: 156px; margin: 0; padding: 18px 12px 30px 20px; border: none; border-radius: 2px 6px 6px 2px; cursor: pointer;
+  display: flex; flex-direction: column; justify-content: flex-start; gap: 8px; text-align: left; color: #f6e6bd;
+  transform: perspective(500px) rotateX(7deg); transform-origin: 50% 100%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 4px 6px 12px rgba(0, 0, 0, 0.5), inset 7px 0 0 rgba(0, 0, 0, 0.22), inset 8px 0 0 rgba(255, 255, 255, 0.08);
+}
+.ed-cover.cloth { background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 40%, rgba(0, 0, 0, 0.25)), repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 3px), var(--cloth); }
+.ed-cover.kraft { color: #3b2a14; background: linear-gradient(135deg, rgba(255, 255, 255, 0.25), transparent 45%, rgba(70, 40, 10, 0.25)), repeating-linear-gradient(90deg, rgba(120, 80, 35, 0.07) 0 1px, transparent 1px 4px), #d2b283; }
+/* A gold frame on cloth, a stitched one on kraft */
+.ed-cover::before { content: ''; position: absolute; inset: 7px 7px 7px 13px; border: 1.5px solid #e1b84e; border-radius: 2px; opacity: 0.85; pointer-events: none; }
+.ed-cover.kraft::before { border: 1px dashed rgba(94, 62, 28, 0.6); }
+.ed-cover .ed-title { writing-mode: horizontal-tb; transform: none; align-self: stretch; text-align: left; font-size: 15px; line-height: 1.1; overflow-wrap: anywhere; text-wrap: balance; max-height: 84px; }
+.ed-cover.cloth .ed-title { color: #f6e6bd; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
+.ed-cover .ed-m { writing-mode: horizontal-tb; transform: none; align-self: stretch; white-space: normal; font-size: 9px; line-height: 1.3; color: inherit; opacity: 0.72; }
+.ed-cover .ed-foot { left: auto; right: 10px; bottom: 10px; }
+.ed-cover .ed-sheets { left: auto; right: 14px; top: -12px; }
+.ed-book.propped .ed-spine-more, .ed-book.propped.row-end:not(.flat) .ed-spine-more { bottom: 10px; left: 26px; transform: none; z-index: 2; }
+.ed-book.propped:has(.kraft) .ed-spine-more { color: #3b2a14; }
+.ed-book.propped:has(.cloth) .ed-spine-more { color: #f4e2b8; }
+@media (hover: hover) { .ed-cover:hover { transform: perspective(500px) rotateX(2deg) translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .ed-cover, .ed-cover:hover { transition: none; } }
+@media (max-width: 420px) { .ed-cover { width: 104px; height: 142px; } .ed-cover .ed-title { font-size: 14px; } }
+
+/* Literature books: a story, not a model. Read stands where the board does, at a calm measure,
+   in the body's sans. The outline lists paragraphs with their sentences; the point page leads
+   with the paragraph. */
+.read-view { padding: 0 0 96px; }
+.lt-read, .lt-page { max-width: 66ch; margin: 0 auto; box-sizing: border-box; font-family: var(--font-body); color: var(--text); }
+.lt-read { padding: 22px 20px 0; }
+.lt-title { margin: 4px 0 8px; font: 700 28px/1.2 var(--font-body); overflow-wrap: anywhere; }
+.lt-standfirst { margin: 0 0 22px; font-size: 17px; line-height: 1.6; color: var(--text-muted); overflow-wrap: anywhere; }
+.lt-h2 { margin: 30px 0 12px; font: 700 20px/1.3 var(--font-body); overflow-wrap: anywhere; }
+.lt-pointhead { cursor: pointer; }
+.lt-p { margin: 0 -8px 1.15em; padding: 2px 8px; border-radius: 8px; font-size: 18px; line-height: 1.75; overflow-wrap: anywhere; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.lt-p:hover, .lt-p:focus-visible { background: color-mix(in srgb, var(--surface-hover) 70%, transparent); outline: none; }
+/* Where the comments are: a paragraph's mark (open: jam; all resolved: quiet ✓), the book's count at the top */
+.lt-mark { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font: 600 12px/1.6 var(--font-body); vertical-align: 2px; white-space: nowrap; }
+.lt-mark.open { border: 1px solid var(--jam); background: color-mix(in srgb, var(--jam) 14%, var(--surface)); color: var(--ink); cursor: pointer; }
+.lt-mark.done { border: 1px solid var(--border); color: var(--text-muted); }
+.lt-point-head .lt-mark { margin-left: auto; }
+.lt-cm-top { display: inline-block; margin: 0 0 14px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--jam); background: color-mix(in srgb, var(--jam) 12%, var(--surface)); color: var(--ink); font: 600 14px var(--font-body); cursor: pointer; }
+/* Vote on chapters (votesView.js): a chapter's 👍 count, its requirement block, the chapter page's vote box, the Votes sheet */
+.lt-top-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.lt-top-row .lt-cm-top { margin: 0; }
+.lt-chapter-btn { padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 4px; }
+.vt-chip { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); font: 600 12px/1.6 var(--font-body); color: var(--text-muted); vertical-align: 3px; white-space: nowrap; }
+.vt-has-req { margin-left: 8px; font: 600 11px var(--font-body); color: var(--text-muted); }
+.vt-req { margin: 0 0 1.2em; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid var(--jam); border-radius: 8px; background: var(--surface); font-family: var(--font-body); }
+.vt-req summary { font-weight: 700; cursor: pointer; }
+.vt-req-text { margin: 8px 0; line-height: 1.6; overflow-wrap: anywhere; }
+.vt-req-text p, .vt-fine p { margin: 0 0 0.6em; }
+.vt-req code { font-family: var(--font-mono); font-size: 0.88em; padding: 0 3px; border-radius: 4px; background: color-mix(in srgb, var(--border) 45%, transparent); overflow-wrap: anywhere; }
+.vt-fine { margin: 10px 0 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 14px; line-height: 1.55; color: var(--text-muted); overflow-wrap: anywhere; }
+.vt-fine-label { margin-bottom: 4px; font: 700 11px var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; }
+/* Accept / Skip right under the sentence (Outline) or paragraph (Read) a suggestion is on */
+.lt-sugg-here { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.lt-read .lt-sugg-here { margin: -0.6em 0 1.15em; }
+.lt-sugg-here .lt-accept { border-color: var(--jam); background: color-mix(in srgb, var(--jam) 12%, var(--surface)); color: var(--ink); font-weight: 700; }
+/* Comments not sent yet (a library book): what, why, Send now */
+.lt-unsent { margin: 0 0 14px; padding: 8px 12px; border: 1px solid var(--jam); border-radius: 10px; background: color-mix(in srgb, var(--jam) 10%, var(--surface)); font: 500 14px/1.5 var(--font-body); color: var(--ink); }
+.lt-unsent-why { color: var(--text-muted); }
+.lt-unsent-why::before { content: '· '; }
+/* Room below the text for the floating waiting pill (bottom 62px, ~46px tall): it never covers the last lines */
+.lt-read, .lt-page, .lt-outline { padding-bottom: 130px; }
+.vt-box { display: flex; flex-direction: column; gap: 8px; margin: 18px 0 8px; }
+.vt-vote.on { background: color-mix(in srgb, var(--jam) 14%, var(--surface)); color: var(--ink); border: 1px solid var(--jam); }
+.vt-closed { color: var(--text-muted); }
+.vt-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 14px; }
+.vt-row { display: flex; align-items: center; gap: 10px; text-align: left; }
+.vt-rank { min-width: 1.6em; font-weight: 700; color: var(--text-muted); }
+.vt-row-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.vt-row-n { white-space: nowrap; font-weight: 600; }
+.vt-tools { display: flex; flex-direction: column; gap: 8px; }
+.lt-next-talk { width: auto; padding: 0 14px; border-radius: 22px; border-color: var(--jam); font-size: 14px; margin-left: auto; margin-right: 8px; }
+.lt-foot { margin: 34px 0 0; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-muted); }
+.lt-link { border: 0; background: none; padding: 0; font: inherit; color: var(--text); text-decoration: underline; cursor: pointer; }
+.lt-empty { margin: 18px 0; color: var(--text-muted); font-size: 15px; line-height: 1.5; }
+.lt-outline { padding-bottom: 80px; }
+.lt-point { margin: 0 0 12px; padding: 10px 12px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.lt-point.parked { background: transparent; border-style: dashed; }
+.lt-point-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.lt-point-open { min-width: 0; padding: 4px 0; border: 0; background: none; font: 700 12px var(--font-mono); letter-spacing: 0.06em; color: var(--text-muted); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.lt-tools { display: inline-flex; gap: 6px; flex: none; }
+.lt-tool { min-width: 40px; min-height: 36px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text); font: 600 13px var(--font-body); cursor: pointer; }
+.lt-tool:disabled { opacity: 0.3; cursor: default; }
+.lt-snippet { margin: 4px 0 6px; font-size: 14px; line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
+.lt-sentences { margin: 0; padding: 0; list-style: none; }
+.lt-sentence { padding: 5px 0; border-top: 1px solid var(--border-light); }
+.lt-sentence:first-child { border-top: 0; }
+.lt-sentence-row { display: flex; align-items: flex-start; gap: 8px; }
+.lt-sentence-text { flex: 1; min-width: 0; font-size: 16px; line-height: 1.55; overflow-wrap: anywhere; }
+.lt-sentence .ol-cm { margin-top: 0; }
+.lt-sentence .ol-cm-list { margin: 4px 0 4px 8px; }
+.lt-written { margin: 4px 0 8px; font-size: 16px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lt-point-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.lt-point-foot .ol-cm { margin-left: auto; }
+.lt-head { border-left-color: var(--border-light); }
+.lt-page { padding: 0 2px; }
+.lt-lead { margin: 0 0 1.1em; font-size: 19px; line-height: 1.75; overflow-wrap: anywhere; }
+.lt-sentences-h { margin-top: 28px; }
+.lt-page-tools .ol-cm { margin-left: auto; }
+body.read-only .lt-tools, body.read-only .lt-refined { display: none; }
+/* Gaps and suggested edits: an editor's marks, quiet. A gap is a bracketed question in Read; a suggestion
+   strikes the words and inserts their replacement, numbered where she can answer them ("skip 2,5"). */
+.lt-gap { margin: 0 -8px 1.15em; padding: 6px 8px; border-radius: 8px; border: 1px dashed var(--border-light); font-size: 16px; line-height: 1.55; color: var(--text-muted); overflow-wrap: anywhere; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.lt-gap:hover, .lt-gap:focus-visible { background: color-mix(in srgb, var(--surface-hover) 70%, transparent); outline: none; }
+.lt-gap-q { margin: 4px 0 10px; padding: 6px 10px; border-left: 3px solid var(--border-light); font-size: 16px; line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
+.lt-fill { width: 100%; box-sizing: border-box; font: 18px/1.7 var(--font-body); }
+.lt-fill-go { margin-top: 10px; }
+.lt-del { text-decoration: line-through; text-decoration-thickness: 1px; text-decoration-color: color-mix(in srgb, var(--text-muted) 70%, transparent); color: var(--text-muted); }
+.lt-ins { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--readModel); background: color-mix(in srgb, var(--readModel) 14%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+.lt-sn { margin-left: 2px; font: 700 10px var(--font-mono); color: var(--text-muted); vertical-align: super; }
+.lt-sugg-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 14px; }
+.lt-outline > .lt-sugg-bar { margin-top: 8px; }
+.lt-sugg-count { font-weight: 700; margin-right: auto; }
+.lt-skip { width: 92px; min-height: 36px; box-sizing: border-box; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text); font: 14px var(--font-body); }
+.lt-allin { min-height: 36px; padding: 4px 14px; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent); color: var(--accent-text); font: 600 13px var(--font-body); cursor: pointer; }
+.lt-sugg-all .lt-allin:first-child { background: var(--bg); color: var(--text); border-color: var(--border); }
+.lt-suggs { margin-top: 26px; }
+.lt-sugg-list { margin: 0; padding: 0; list-style: none; }
+.lt-sugg { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border-light); }
+.lt-sugg:first-child { border-top: 0; }
+.lt-sn-num { flex: none; width: 22px; margin: 2px 0 0; font-size: 12px; vertical-align: baseline; text-align: center; }
+.lt-sugg-body { flex: 1; min-width: 0; }
+.lt-sugg-change { font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+.lt-cut { color: var(--text-muted); font-style: italic; }
+.lt-why { margin-top: 2px; font-size: 14px; color: var(--text-muted); overflow-wrap: anywhere; }
+.lt-sugg-tools { display: inline-flex; gap: 6px; margin-top: 8px; }
+.lt-sugg-all { display: flex; gap: 8px; margin-top: 12px; }
+body.read-only .lt-sugg-bar { display: none; }
+.lt-page .sp-h2 { font-family: var(--font-body); }
+
+/* Compare's picker: a search over the shelves */
+.cp-pick-search { margin: 4px 0 10px; }
+.cp-pick[hidden] { display: none; }
+
+/* A heading line in a literature book's outline and point page: its text, set as a heading */
+.lt-headline { font-weight: 700; font-size: 1.1em; }
+
+/* The pill that steps through what is waiting for her (Read and Outline): above the corner pills, in the middle */
+.lt-jump { position: fixed; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 30; display: inline-flex; align-items: center; max-width: calc(100vw - 24px);
+  border: 1px solid var(--border-light); border-radius: 999px; background: var(--surface); color: var(--text); font-family: var(--font-body); box-shadow: 0 8px 22px -14px rgba(40, 26, 15, 0.55); }
+.lt-jump[hidden] { display: none; }
+.lt-jump button { white-space: nowrap; min-width: 44px; min-height: 44px; padding: 0 10px; border: 0; background: none; color: inherit; font: 600 15px var(--font-body); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.lt-jump button:active { background: var(--surface-hover); }
+.lt-jump > button:first-child { border-radius: 999px 0 0 999px; font-size: 20px; }
+.lt-jump > button:nth-child(3) { font-size: 20px; }
+.lt-jump-count { min-width: 64px; font-variant-numeric: tabular-nums; }
+.lt-jump-open { border-left: 1px solid var(--border-light) !important; border-radius: 0 999px 999px 0; color: var(--jam) !important; font-size: 13px !important; padding: 0 14px !important; }
+.lt-jump-row { width: 100%; text-align: left; }
+.lt-flash { animation: lt-flash 1.6s ease-out; }
+@keyframes lt-flash { 0%, 35% { background: color-mix(in srgb, var(--jam) 26%, transparent); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .lt-flash { animation-duration: 0.01s; } }
+
+/* A chapter's name opens its menu (rename, move, delete): the ⋮ says so, as on slices */
+.ch-more { display: inline-block; margin-right: 6px; color: var(--text-muted); font-weight: 700; font-size: 0.85em; vertical-align: 0.05em; }
+/* On the board the label's own text is small: the ⋮ takes a slice ⋮'s size, centred by the fold button */
+.bd-chapter-label .ch-more { font: 700 20px/1 var(--font-body); align-self: baseline; margin-right: 0; }
+
+/* A slice's number (S3): what she and an agent both call it */
+.ol-ref { margin-left: 6px; font: 600 11px var(--font-mono); color: var(--text-muted); letter-spacing: .03em; white-space: nowrap; }
+.sp-num { font-family: var(--font-mono); }
+
+/* The title menu's first lines: which book this is */
+.bk-info { margin: 2px 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-hover); }
+.bk-name { font-weight: 700; overflow-wrap: anywhere; }
+.bk-id { margin: 4px 0; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text); font: 600 12px var(--font-mono); cursor: pointer; }
+.bk-meta { font-size: 13px; color: var(--text-muted); }
+
+/* Read, before anything is written: the outline's points, claim and thought */
+.lt-point-plan { display: flex; flex-direction: column; gap: 2px; margin: 0 0 14px; cursor: pointer; }
+.lt-point-plan b { font-weight: 700; }
+.lt-point-plan span { color: var(--text-muted); line-height: 1.5; }
+.lt-point-page { cursor: default; font-size: 1.08rem; margin-top: 4px; }
+.lt-thought { color: var(--text-muted); line-height: 1.55; margin: 0 0 6px; white-space: pre-wrap; }
+
+/* A literature book's title (Read) and name (Outline) open its menu; the rounds banner approves */
+.lt-title-btn { all: unset; cursor: pointer; }
+.lt-title-btn:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 4px; border-radius: 4px; }
+.lt-title-btn::before { content: "⋮"; font-size: 0.6em; color: var(--text-muted); vertical-align: middle; padding-right: 6px; }
+.ol-toolbar .lt-book-title { max-width: 50vw; }
+.ol-rounds { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ol-rounds-go { flex: none; padding: 6px 14px; border-radius: 999px; border: none; background: var(--text); color: var(--bg); font: 700 14px var(--font-body); cursor: pointer; }
+.ol-toolbar .lt-book-title span { margin-right: 4px; color: var(--text-muted); }
+
+/* A board column's S-number (the same as the outline's and an agent's) */
+/* Drawn from data-ref, so the name's text stays the name for anything reading it */
+.bd-head-ref::after { content: attr(data-ref); }
+.bd-head-ref { margin-left: 6px; font: 600 11px var(--font-mono); color: var(--text-muted); letter-spacing: .03em; white-space: nowrap; vertical-align: middle; }
+
+/* Find a slice (board sheet) */
+.bd-find-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 50vh; overflow-y: auto; }
+.bd-find-match { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.bd-find-ref { font-weight: 600; opacity: 0.7; }
+.bd-find-title { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.bd-find-sub { grid-column: 2; font-size: 12px; opacity: 0.7; }
+.bd-find-empty { padding: 10px 2px; opacity: 0.7; }
+
+/* Outline on a phone: each scenario is one full-width card. The ☆ sits in its top-right corner and the verdict
+   row (overall verdict on the left, the two small round ✓ ✗ on the right) and 💬 are one row along its bottom edge,
+   inside it (computers keep them beside it). The pinned breadcrumb sits where the Outline/Details tabs would
+   stick, so on a phone the tabs scroll away. */
+@media (max-width: 480px) {
+  .ol-scenario-row { position: relative; display: block; margin: 6px 0 0 0; }
+  .ol-scenario-row .ol-scenario { width: 100%; margin: 0; padding: 10px 12px 62px; }
+  .ol-scenario-row .ol-scenario-name { display: block; padding-right: 44px; }
+  .ol-scenario-row .ol-must { position: absolute; top: 8px; right: 8px; }
+  /* while verifying the card is the whole row (Given/When/Then, then the verdict row below it, inside the border):
+     the verdict row grows with its ✗ notes, 💬 stays in the corner */
+  .ol-scenario-row:has(.ol-vd) { background: var(--surface); border: 1px dashed var(--border-light); border-radius: 10px; }
+  .ol-scenario-row:has(.ol-vd) .ol-scenario { padding-bottom: 4px; background: none; border: 0; }
+  .ol-scenario-row .ol-vd { position: static; width: auto; min-height: 52px; box-sizing: border-box; padding: 4px 66px 8px 12px; display: flex; align-items: center; gap: 8px; margin: 0; }
+  .ol-scenario-row .ol-vd-btn { width: 40px; height: 40px; font-size: 17px; }
+  .ol-scenario-row .ol-cm { position: absolute; right: 10px; bottom: 10px; margin: 0; min-width: 48px; min-height: 44px; font-size: 16px; }
+  .ov-tabs { position: static; }
+  .ov-tabs::before { display: none; }
+}
+
+/* Retire built plans: the plan's mark and Retire, the folded Retired shelf, an edition's Built from */
+.rt-box { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 4px; }
+.rt-mark { flex: 1 1 auto; font: 600 12px var(--font-mono); color: var(--text-muted); }
+.rt-rows { list-style: none; margin: 0; padding: 4px 16px 10px; display: flex; flex-direction: column; gap: 6px; }
+.rt-row { width: 100%; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: 600 13px var(--font-body); cursor: pointer; }
+.rt-built-from { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.rt-built-label { font: 600 11px var(--font-mono); color: var(--text-muted); }
+.rt-plan { flex: 0 1 auto; }
+/* Build progress: a builder's reports on a plan's slices (features/buildProgress) */
+.bp-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: 600 12px/1.2 var(--font-body); cursor: pointer; }
+.bp-chip .bp-ago, .bp-step .bp-ago { font-weight: 400; color: var(--text-muted); }
+.bp-chip.bp-green, .bp-chip.bp-pr { border-color: #3f7a2f; }
+.bp-chip.bp-red { border-color: #b5541c; }
+.bp-chip.bp-stuck { border-color: #b5541c; background: #fbe9d4; color: #5a2a08; }
+.bp-chip.bp-stuck .bp-ago { color: #7a4a22; }
+.bd-head-progress { margin: 4px 0 0; }
+.bp-steps { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.bp-step { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 3px solid var(--border); }
+.bp-step.bp-green, .bp-step.bp-pr { border-left-color: #3f7a2f; }
+.bp-step.bp-red, .bp-step.bp-stuck { border-left-color: #b5541c; }
+.bp-note { color: var(--text-muted); font-size: 13px; }
+.bp-pr { font-size: 13px; color: var(--text); }
+.ed-progress { display: inline-flex; padding: 2px 5px; border-radius: 999px; background: #cfe8c4; color: #1f4a17; font: 700 10px/1.2 var(--font-mono); white-space: nowrap; box-shadow: 0 0 0 1.5px #3f7a2f; }
+.ed-progress-full { display: none; }
+.ed-spine .ed-progress { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); }
+.ed-cover .ed-progress { position: static; transform: none; align-self: stretch; display: block; margin-top: 6px; padding: 3px 6px; border-radius: 8px; white-space: normal; font-size: 9px; line-height: 1.3; }
+.ed-cover .ed-progress-short { display: none; }
+.ed-cover .ed-progress-full { display: inline; }
+.ed-spine.flat .ed-progress { position: static; transform: none; flex: none; margin-left: 6px; }
+
+/* INTEGRATION EVENTS (ours, published to other systems): event orange, a solid dark right border and a ↗ tab */
+:root { --note-published-edge: #3b2410; }
+.bd-card[data-type="event"][data-published],
+.bd-chip[data-type="event"][data-published],
+.gwt-ref[data-type="event"][data-published],
+.sp-ref[data-type="event"][data-published],
+.sp-sticky[data-type="event"][data-published] { position: relative; border-right: 5px solid var(--note-published-edge); }
+.bd-card[data-type="event"][data-published]::after,
+.bd-chip[data-type="event"][data-published]::after,
+.gwt-ref[data-type="event"][data-published]::after,
+.sp-ref[data-type="event"][data-published]::after,
+.sp-sticky[data-type="event"][data-published]::after { content: "\2197"; position: absolute; top: 7px; right: 0; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 4px 0 0 4px; background: var(--note-published-edge); color: #ffe3c2; font: 700 12px/1 var(--font-mono, monospace); }
+.dt-card[data-type="event"][data-published] { border-right: 5px solid var(--note-published-edge); }
+.dt-link-el[data-published] { border-right: 3px solid var(--note-published-edge); padding: 0 4px; }
+.bd-card-to, .sp-sticky-to, .sp-ref-to { font-size: 11px; font-weight: 600; opacity: .8; }
+.sp-ref-to { display: block; margin-top: 2px; }
+.bd-type-icon-published { background: var(--note-event); }
+.bd-type-icon-published.on { background: var(--note-published-edge); color: #ffe3c2; }
+.em-consumers-field { padding: 6px 16px 10px; }
+.cp-contract { margin: 10px 0; padding: 10px 14px; border-left: 5px solid #c0392b; background: rgba(192, 57, 43, .10); border-radius: 6px; }
+.cp-contract-title { font-weight: 700; color: #a52a1c; }
+.cp-contract-list { margin: 6px 0 0; padding-left: 18px; }
+.bv-contract .ed-sheet-kicker { color: #a52a1c; }

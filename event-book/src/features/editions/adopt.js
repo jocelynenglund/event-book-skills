@@ -39,6 +39,7 @@ export function adoptBuiltContent(planSliceId, builtState, builtSliceId) {
     if (!same) {
       appendEvent(T.ElementCreated, { elementId: id, elementType: el.type, name: el.name });
       if (el.external) appendEvent(T.ElementExternalSet, { elementId: id, external: true });
+      if (el.published) appendEvent(T.ElementPublishedSet, { elementId: id, published: true, ...(el.to?.length ? { to: el.to } : {}) });
       if (el.todo) appendEvent(T.ElementTodoSet, { elementId: id, todo: true });
       if (el.list) appendEvent(T.ElementListSet, { elementId: id, list: true });
     }
@@ -76,5 +77,6 @@ export function adoptBuiltContent(planSliceId, builtState, builtSliceId) {
     if (th?.type === 'event' && map[th.eventId]) appendEvent(T.ThenEventSet, { scenarioId, eventId: map[th.eventId], values: th.values || {} });
     else if (th?.type === 'readModel' && map[th.readModelId]) appendEvent(T.ThenReadModelSet, { scenarioId, readModelId: map[th.readModelId], values: th.values || {}, ...(th.rows ? { rows: th.rows } : {}) });
     else if (th?.type === 'rejection') appendEvent(T.ThenRejectionSet, { scenarioId, reason: th.reason });
+    else if (th?.type === 'nothing') appendEvent(T.ThenNothingSet, { scenarioId, reason: th.reason });
   });
 }

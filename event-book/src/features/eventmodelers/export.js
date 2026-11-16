@@ -95,7 +95,7 @@ const exampleText = v => v == null ? undefined : typeof v === 'object' ? JSON.st
 
 export function buildEventmodelersBoard(state = projectState(), { build = isBuildBook(getEventStream()) } = {}) {
   const boardId = uid();
-  const boardName = state.modelName || 'EventPAD model';
+  const boardName = state.modelName || 'Event Book model';
   const nodes = [], edges = [], metadata = {};
   // element id → [{ nodeId, chapterIdx, row, col }] (an element can sit in several slices)
   const placed = {};

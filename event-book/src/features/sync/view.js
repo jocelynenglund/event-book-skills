@@ -4,7 +4,7 @@
 
 import { account, kept, isKept, shelfStatus, startSignIn, verifySignIn, signOut, listDevices, revokeDevice, createInvite,
   serverLibrary, keepOnServer, download, onSyncChange, syncAll, serverIds,
-  holderOf, checkOut, checkIn, takeOver, onEditBlocked, isBuildShelf } from './client.js';
+  holderOf, agentDeviceName, checkOut, checkIn, takeOver, onEditBlocked, isBuildShelf } from './client.js';
 import { getCurrentModelId, isFrozenCurrent, canEditCurrent, openModel } from '../../core/eventStore.js';
 import { sectionHead, sectionBody } from '../library/folds.js';
 import { openBoardSheet } from '../board/sheets/shared.js';
@@ -16,16 +16,13 @@ import { setReadOnly } from '../readOnly/sheet.js';
 import { isAgent } from '../library/sections.js';
 import { itsybitMark } from '../../ui/itsybitMark.js';
 import { byName } from '../../ui/byName.js';
+import { librarySignIn } from './librarySignIn.read.js';
+import { libraryAccountBar } from './sync.parts.js';
 
-const APP_URL = 'https://eventpad.itsybit.se/';
+const APP_URL = 'https://eventbook.itsybit.se/';
 
 // The line under "Bookshelves": sign in, or who's signed in
-export function accountBar() {
-  const a = account();
-  return `<div class="sy-bar" id="syBar">${a
-    ? `<button class="sy-account" data-sync-action="account">☁ ${escapeHtml(a.email)}</button><span class="sy-note" id="syServerOnly"></span>`
-    : `<button class="sy-account" data-sync-action="signin">☁ Sign in to your library</button>`}</div>`;
-}
+export const accountBar = () => libraryAccountBar(librarySignIn());
 
 // Where a kept shelf is checked out: here (✏️), on another device (🔒), to an agent
 // (the itsyBIT mark), or nowhere (☁). icon is HTML.
@@ -37,8 +34,8 @@ function holderLabel(modelId) {
   return { icon: '🔒', text: `On loan to ${h.deviceName || 'another device'}`, cls: 'away' };
 }
 
-// "Claude on itsybit" → "Claude": who the banner says is editing
-const agentName = h => (h?.deviceName || '').replace(/\s+on\s+.*$/i, '').trim() || 'An agent';
+// Who the banner says is editing: "ItsyBOT · Harry" (an old "Claude on <host>" reads as ItsyBOT · <host>)
+const agentName = h => agentDeviceName(h?.deviceName).trim() || 'An agent';
 
 // On a library book: borrowed here, checked in, or on loan to another device, plus
 // syncing or couldn't (and why). A private book needs none: its section says so.
@@ -189,9 +186,13 @@ async function fillServerOnly() {
     // have the same id (an old import) isn't it: downloading gives the shelf a book of its own
     const here = new Set(serverIds());
     const missing = (await serverLibrary()).filter(m => !here.has(m.modelId)).sort(byName);
+    const builds = missing.filter(m => m.app).length;
     const box = document.getElementById('syMissing');
     if (box) box.innerHTML = sectionHead('missing', 'In your library, not on this device', String(missing.length), missing.length)
-      + sectionBody('missing', missing.length, (missing.length > 1 ? `<button class="sy-download-all" data-sync-action="download-all">⬇ Download all ${missing.length}</button>` : '') + missing.map(m => `<button class="sy-missing" data-sync-action="download" data-model="${escapeHtml(m.modelId)}" title="${escapeHtml(m.name || 'Untitled model')} · ${m.count} events${m.updatedAt ? ` · changed ${escapeHtml(new Date(m.updatedAt).toLocaleString())}` : ''}">⬇ ${escapeHtml(m.name || 'Untitled model')} <span>${m.count} events</span></button>`).join(''));
+      + sectionBody('missing', missing.length, (missing.length > 1 ? `<button class="sy-download-all" data-sync-action="download-all">⬇ Download all ${missing.length}</button>` : '')
+        // Only the build books (Jocelyn, 2026-11-07): the library says which (app, its published build's app)
+        + (builds && builds < missing.length ? `<button class="sy-download-all sy-download-builds" data-sync-action="download-builds">⬇ Download build books ${builds}</button>` : '')
+        + missing.map(m => `<button class="sy-missing" data-sync-action="download" data-model="${escapeHtml(m.modelId)}"${m.app ? ` data-build="${escapeHtml(m.app)}"` : ''} title="${escapeHtml(m.name || 'Untitled model')} · ${m.count} events${m.updatedAt ? ` · changed ${escapeHtml(new Date(m.updatedAt).toLocaleString())}` : ''}">⬇ ${escapeHtml(m.name || 'Untitled model')}${m.used ? ' <span class="sy-used" title="Has usage data">📈</span>' : ''} <span>${m.count} events</span></button>`).join(''));
     // The "Not here" chip at the top
     const chip = document.querySelector('[data-jump-count="missing"]');
     if (chip) { chip.textContent = missing.length; chip.parentElement.disabled = !missing.length; chip.parentElement.classList.toggle('empty', !missing.length); }
@@ -292,16 +293,18 @@ async function handle(t) {
       showToast('In step with your library');
       if (document.body.classList.contains('library-mode')) window.EventPad.showLibrary();
     }
-    else if (a === 'download-all') {
-      // Every book in the library that isn't here yet, one after another
-      const ids = [...document.querySelectorAll('.sy-missing[data-sync-action=download]')].map(b => b.dataset.model);
+    else if (a === 'download-all' || a === 'download-builds') {
+      // Every book in the library that isn't here yet (or only its build books), one after another
+      const builds = a === 'download-builds';
+      const ids = [...document.querySelectorAll(`.sy-missing[data-sync-action=download]${builds ? '[data-build]' : ''}`)].map(b => b.dataset.model);
+      const what = n => builds ? (n === 1 ? 'build book' : 'build books') : (n === 1 ? 'book' : 'books');
       t.disabled = true;
       let done = 0;
       for (const id of ids) {
         t.textContent = `⬇ Downloading ${done + 1} of ${ids.length}…`;
         try { await download(id); done++; } catch (e) { /* the rest still come */ }
       }
-      showToast(done === ids.length ? `Downloaded ${done} ${done === 1 ? 'book' : 'books'}` : `Downloaded ${done} of ${ids.length}: try again for the rest`);
+      showToast(done === ids.length ? `Downloaded ${done} ${what(done)}` : `Downloaded ${done} of ${ids.length}: try again for the rest`);
       window.EventPad.showLibrary();
     }
     else if (a === 'keep') {
@@ -365,4 +368,22 @@ export function initSyncView() {
     history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash);
     setTimeout(() => openSignIn(inviteFromLink), 300);
   }
+  // A book link (?book=<its id in the library>): the book itself, not a copy. Downloaded if it
+  // isn't here yet and opened, to read or check out as from the bookshelves
+  const book = params.get('book');
+  if (book) {
+    params.delete('book');
+    history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash);
+    setTimeout(() => openBookLink(book), 300);
+  }
+}
+
+async function openBookLink(serverId) {
+  if (!account()) { showToast('Sign in to open this book from your library'); openSignIn(); return; }
+  let id;
+  try { id = await download(serverId); }
+  catch (e) { showToast(e.status === 404 || e.status === 403 ? 'That book isn’t in your library' : 'Couldn’t open that book: try again'); return; }
+  hideAllSheets();
+  openModel(id);
+  window.EventPad.showStart();
 }

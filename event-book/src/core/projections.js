@@ -2,8 +2,9 @@
 // PROJECTIONS (Read Models)
 // ===========================================
 
-import { getEventStream, EventTypes } from './eventStore.js';
+import { getEventStream, EventTypes, storedEvents, readModelEvents } from './eventStore.js';
 import { byName } from './constants.js';
+import { isSliceEdit, editedSlices } from './sliceEdits.js';
 import { editionOf } from '../features/editions/rules.js';
 
 // Element ordering hierarchy (top to bottom)
@@ -28,6 +29,48 @@ export function sortSliceElements(elements, state) {
 }
 
 // The open model by default; the library passes other models' events
+// What changes a book's structure: its chapters and slices (Approve Structure is taken back by them)
+const STRUCTURAL = new Set([EventTypes.SliceCreated, EventTypes.SliceDeleted, EventTypes.SliceNamed, EventTypes.SliceMoved, EventTypes.SliceChapterSet,
+  EventTypes.ChapterCreated, EventTypes.ChapterRenamed, EventTypes.ChapterMoved, EventTypes.ChapterDeleted]);
+
+// A book's state for the shelves (read only: don't change what it gives back), projected once
+// and remembered until its events change: appended or undone in place (length, last event),
+// or replaced (a new array)
+const booksSeen = new WeakMap();   // stored events → { length, last, state }
+export function bookState(id) {
+  const stored = storedEvents(id);
+  if (!stored) return projectState(readModelEvents(id));
+  const last = stored[stored.length - 1]?.id;
+  const seen = booksSeen.get(stored);
+  if (seen && seen.length === stored.length && seen.last === last) return seen.state;
+  const state = projectState([...stored]);
+  booksSeen.set(stored, { length: stored.length, last, state });
+  return state;
+}
+
+// SV: Board Build Chip — the chip on a slice's header on the Board: nothing until it's refined, Ready once
+// refined, Done once confirmed built from the tests. The Board's own view (it replaced the generic SliceView).
+export function boardBuildChip(state, sliceId) {
+  const s = state.slices[sliceId];
+  if (!s) return null;
+  return { sliceId, chip: !s.refined ? 'none' : s.built ? 'done' : 'ready' };
+}
+
+// Refined State: is this slice planned out (marked refined, and not edited since)? The Outline's
+// Refined pill and its ✓ badge read it, and only it (a view of its own, not SliceView's).
+export function refinedState(state, sliceId) {
+  const s = state.slices[sliceId];
+  return s ? { sliceId, refined: !!s.refined } : null;
+}
+
+// A scenario in words that can be compared (name, Given events, When command, Then): what a verdict is about
+export function scenarioShape(scn, state) {
+  const name = id => state.elements[id]?.name || '';
+  const t = scn.then;
+  return JSON.stringify([scn.name, (scn.given || []).map(g => name(g.elementId)).filter(Boolean), scn.when?.commandId ? name(scn.when.commandId) : '',
+    t?.type === 'event' ? name(t.eventId) : t?.type === 'rejection' ? 'rejected' : t?.type === 'nothing' ? 'nothing' : t?.type === 'readModel' ? name(t.readModelId) : '']);
+}
+
 export function projectState(eventStream = getEventStream()) {
   
   const state = {
@@ -41,15 +84,30 @@ export function projectState(eventStream = getEventStream()) {
     flows: {},         // id -> { id, chapterId, name }
     modelName: null,
     modelDescription: null,
+    tags: [],
+    preface: null,     // why the book is being written (the first page); the description says what it is
     updateRoles: {},   // 'eventId>readModelId' -> 'adds' | 'completes' (to-do lists)
     modelSource: null, // built from code: { repo, commit, createdAt, build } (a test export)
     sliceDecisions: [], // compare: { sliceId, otherShelf, otherSliceName, same } (possible renames answered)
     edition: null,     // { published, edition, draft, commit, lastBuild } (features/editions/rules.js)
+    retired: null,     // { app, edition, retiredAt }: the plan was built and put away (features/retire)
     follow: null,      // { app, followedBy }: the app whose build book this plan follows (features/buildVersions)
     specs: {},         // sliceId → { app, at }: its refined scenarios written as pending specs (features/specs)
+    progress: {},      // sliceId → { step, note, pr, tests, by, at, history: [{ step, note, pr, tests, by, at }] }: a builder's reports on a slice, newest last (features/buildProgress)
     press: null,       // { stage: press | building | built, app, slices, sentBy, builder, fromCommit, build, back } (features/press)
+    structure: null,   // { approved, by, at, changed }: round one, the chapters and slices approved (features/article)
+    bookKind: null,    // 'fact' | 'literature' as chosen when the book was made (features/literature); kind below is what it reads as
+    kind: 'fact',
+    author: null,      // who wrote a literature book's text: who imported it (features/literature)
+    suggestions: {},   // suggestionId -> { id, n, sliceId, sentenceId, find, replace, why, by, status: open | accepted | skipped }
+    sentences: {},     // sentenceId -> { id, sliceId, text, by, at }: a literature point's sentences, in order (features/literature)
+    requirements: {},  // chapterId -> text: a literature chapter's requirement block (features/literature/votes.js)
+    votes: {},         // chapterId -> voterId -> { nickname, why, at }: who backs which chapter
+    voting: { closed: false, until: null },   // open unless she closed it (or its until has passed)
+    paragraphs: {},    // paragraphId → { id, sliceId, text, by, at }: an article point's text (features/article)
     comments: {},      // id -> { id, sliceId, scenarioId, part, text, nickname, deviceId, at, resolved, resolvedBy, deleted }
-    verdicts: {},      // edition -> scenarioId -> { verdict: works | fails, note, testedBy, at, sliceId } (the latest counts)
+    verdicts: {},      // edition -> scenarioId -> tester (nickname) -> { verdict: works | fails, note, testedBy, at, sliceId } (each tester's latest counts)
+    verdictShapes: {}, // edition -> scenarioId -> the scenario as it was when that edition was published (so a verdict can carry over while it's unchanged)
     pendingSlice: null
   };
 
@@ -58,6 +116,12 @@ export function projectState(eventStream = getEventStream()) {
   const everSliced = new Set();
 
   for (const event of eventStream) {
+    // A change to the chapters or slices takes back the structure's approval (round one)
+    if (state.structure?.approved && STRUCTURAL.has(event.type)) state.structure = { ...state.structure, approved: false, changed: true };
+    // An edit to a refined slice makes it not refined (derived: no event is recorded for it)
+    if (isSliceEdit(event)) {
+      for (const id of editedSlices(event, state)) if (id && state.slices[id]?.refined) state.slices[id].refined = false;
+    }
     switch (event.type) {
       // The model as it stood, in one go (a copy: later events change it)
       case EventTypes.ModelSnapshot: {
@@ -104,9 +168,20 @@ export function projectState(eventStream = getEventStream()) {
         }
         break;
 
+      case EventTypes.ElementPublishedSet:
+        if (state.elements[event.data.elementId]) {
+          const el = state.elements[event.data.elementId];
+          el.published = !!event.data.published;
+          const to = Array.isArray(event.data.to) ? event.data.to.filter(Boolean) : [];
+          if (el.published && to.length) el.to = to; else delete el.to;
+        }
+        break;
+
       case EventTypes.ElementTableSet:
         if (state.elements[event.data.elementId]) {
-          state.elements[event.data.elementId].table = !!event.data.table;
+          // the table's name when the event has one (plan files), else just a mark
+          const t = event.data.table;
+          state.elements[event.data.elementId].table = typeof t === 'string' && t ? t : !!t;
         }
         break;
         
@@ -181,7 +256,8 @@ export function projectState(eventStream = getEventStream()) {
           created: true,
           actor: event.data.actor || 'screen',   // who drives the top lane: a screen or a processor
           pairWith: event.data.pairWith || null, // automation: the SV/SC slice on the other side of the processor
-          chapterId: event.data.chapterId || null
+          chapterId: event.data.chapterId || null,
+          waived: null                           // { reason } once its scenarios are waived
         };
         state.sliceOrder.push(event.data.sliceId);
         break;
@@ -198,16 +274,22 @@ export function projectState(eventStream = getEventStream()) {
 
       case EventTypes.CommentAdded: {
         const d = event.data;
-        state.comments[d.commentId] = { id: d.commentId, sliceId: d.sliceId, scenarioId: d.scenarioId || null, part: d.part || null,
+        state.comments[d.commentId] = { id: d.commentId, sliceId: d.sliceId || null, scenarioId: d.scenarioId || null, part: d.part || null, threadId: d.threadId || null,
           text: d.text, nickname: d.nickname, deviceId: d.deviceId, at: d.at || event.timestamp, resolved: false, resolvedBy: null, deleted: false };
+        // A reply to a resolved thread opens it again
+        if (d.reopens && state.comments[d.reopens]) Object.assign(state.comments[d.reopens], { resolved: false, resolvedBy: null });
         break;
       }
 
       case EventTypes.ScenarioTested: {
         const d = event.data;
-        (state.verdicts[d.edition ?? 0] ||= {})[d.scenarioId] = { verdict: d.verdict, note: d.note || null, testedBy: d.testedBy, at: d.at || event.timestamp, sliceId: d.sliceId };
+        ((state.verdicts[d.edition ?? 0] ||= {})[d.scenarioId] ||= {})[d.testedBy || ''] = { verdict: d.verdict, note: d.note || null, testedBy: d.testedBy, at: d.at || event.timestamp, sliceId: d.sliceId };
         break;
       }
+
+      case EventTypes.EditionPublished:
+        state.verdictShapes[event.data.edition ?? 0] = Object.fromEntries(Object.values(state.scenarios).map(s => [s.id, scenarioShape(s, state)]));
+        break;
 
       case EventTypes.CommentResolved:
         if (state.comments[event.data.commentId]) Object.assign(state.comments[event.data.commentId], { resolved: true, resolvedBy: event.data.resolvedBy || null });
@@ -225,8 +307,16 @@ export function projectState(eventStream = getEventStream()) {
         state.modelDescription = event.data.description || null;
         break;
 
+      case EventTypes.BookPrefaceWritten:
+        state.preface = event.data.preface || null;
+        break;
+
+      case EventTypes.BookTagged:
+        state.tags = Array.isArray(event.data.tags) ? event.data.tags : [];
+        break;
+
       case EventTypes.ChapterCreated:
-        state.chapters[event.data.chapterId] = { id: event.data.chapterId, name: event.data.name };
+        state.chapters[event.data.chapterId] = { id: event.data.chapterId, name: event.data.name, ...(event.data.parked ? { parked: true } : {}) };
         state.chapterOrder.push(event.data.chapterId);
         break;
 
@@ -282,6 +372,15 @@ export function projectState(eventStream = getEventStream()) {
         if (a && b) { a.pairWith = b.id; b.pairWith = a.id; }
         break;
       }
+      case EventTypes.SlicesUnpaired: {
+        const a = state.slices[event.data.sliceId], b = a && state.slices[a.pairWith];
+        if (a) a.pairWith = null;
+        if (b) b.pairWith = null;
+        break;
+      }
+      case EventTypes.SliceActorSet:
+        if (state.slices[event.data.sliceId]) state.slices[event.data.sliceId].actor = event.data.actor;
+        break;
 
       case EventTypes.SliceChapterSet:
         if (state.slices[event.data.sliceId]) {
@@ -347,7 +446,7 @@ export function projectState(eventStream = getEventStream()) {
         state.sliceOrder = state.sliceOrder.filter(id => id !== event.data.sliceId);
         break;
       
-      // Explicitly refined (planning); any edit to the slice records SliceRefinedCleared after it.
+      // Explicitly refined (planning); any edit to the slice clears it (above); taking it back by hand records SliceRefinedCleared.
       // Older models said ready for refined.
       case EventTypes.SliceMarkedRefined:
       case EventTypes.SliceMarkedReady:
@@ -359,9 +458,18 @@ export function projectState(eventStream = getEventStream()) {
         if (state.slices[event.data.sliceId]) state.slices[event.data.sliceId].refined = false;
         break;
 
+      // Nothing to test here: refined without scenarios, no spec expected
+      case EventTypes.ScenariosWaived:
+        if (state.slices[event.data.sliceId]) state.slices[event.data.sliceId].waived = { reason: event.data.reason || '' };
+        break;
+
+      case EventTypes.ScenarioWaiverLifted:
+        if (state.slices[event.data.sliceId]) state.slices[event.data.sliceId].waived = null;
+        break;
+
       // Done: confirmed against a model built from the tests, at its commit
       case EventTypes.SliceMarkedBuilt:
-        if (state.slices[event.data.sliceId]) Object.assign(state.slices[event.data.sliceId], { built: true, builtCommit: event.data.commit || null });
+        if (state.slices[event.data.sliceId]) Object.assign(state.slices[event.data.sliceId], { built: true, builtCommit: event.data.commit || null, builtEdition: event.data.edition ?? null });
         break;
 
       // Compare: a possible rename answered, against the other shelf
@@ -376,6 +484,90 @@ export function projectState(eventStream = getEventStream()) {
         break;
       case EventTypes.BuildUnfollowed:
         state.follow = null;
+        break;
+      case EventTypes.PlanRetired:
+        state.retired = { app: event.data.app || null, edition: event.data.edition ?? null, retiredAt: event.data.retiredAt || event.timestamp || null };
+        break;
+
+      case EventTypes.StructureApproved:
+        state.structure = { approved: true, by: event.data.approvedBy || null, at: event.timestamp || null, changed: false };
+        break;
+
+      case EventTypes.ParagraphWritten:
+        (state.paragraphs ||= {})[event.data.paragraphId] = { id: event.data.paragraphId, sliceId: event.data.sliceId, text: event.data.text, by: event.data.by || null, at: event.timestamp || null };
+        break;
+
+      case EventTypes.BookKindChosen:
+        if (event.data.kind === 'fact' || event.data.kind === 'literature') state.bookKind = event.data.kind;
+        break;
+
+      case EventTypes.SentenceAdded:
+        (state.sentences ||= {})[event.data.sentenceId] = { id: event.data.sentenceId, sliceId: event.data.sliceId, text: event.data.text, by: event.data.by || null, at: event.timestamp || null };
+        break;
+
+      case EventTypes.DraftImported:
+        state.author = event.data.author || null;
+        break;
+
+      case EventTypes.GapAdded:
+        if (state.slices[event.data.sliceId]) state.slices[event.data.sliceId].gap = { question: event.data.question, by: event.data.by || null, filled: false };
+        break;
+
+      case EventTypes.GapFilled:
+        if (state.slices[event.data.sliceId]?.gap) state.slices[event.data.sliceId].gap.filled = true;
+        (event.data.sentences || []).forEach(x => {
+          (state.sentences ||= {})[x.sentenceId] = { id: x.sentenceId, sliceId: event.data.sliceId, text: x.text, by: event.data.by || null, at: event.timestamp || null };
+        });
+        break;
+
+      case EventTypes.EditSuggested:
+        (state.suggestions ||= {})[event.data.suggestionId] = { id: event.data.suggestionId, n: event.data.n, sliceId: event.data.sliceId, sentenceId: event.data.sentenceId,
+          find: event.data.find, replace: event.data.replace || '', why: event.data.why || '', by: event.data.by || null, status: 'open' };
+        break;
+
+      case EventTypes.SuggestionsAccepted:
+        (event.data.edits || []).forEach(x => { if (state.sentences?.[x.sentenceId]) state.sentences[x.sentenceId].text = x.text; });
+        (event.data.accepted || []).forEach(id => { if (state.suggestions?.[id]) state.suggestions[id].status = 'accepted'; });
+        (event.data.skipped || []).forEach(id => { if (state.suggestions?.[id]) state.suggestions[id].status = 'skipped'; });
+        break;
+
+      // Where a parked paragraph came from, to put it back (the Parked chapter itself says it is parked)
+      case EventTypes.PointParked:
+        if (state.slices[event.data.sliceId]) state.slices[event.data.sliceId].parkedFrom = { chapterId: event.data.from || null, afterSliceId: event.data.after || null };
+        break;
+
+      case EventTypes.PointUnparked:
+        if (state.slices[event.data.sliceId]) state.slices[event.data.sliceId].parkedFrom = null;
+        break;
+
+      case EventTypes.RequirementSet:
+        if (event.data.text) (state.requirements ||= {})[event.data.chapterId] = event.data.text;
+        else if (state.requirements) delete state.requirements[event.data.chapterId];
+        break;
+
+      // A vote counts while voting is open when it comes in (a reviewer's can arrive late): once per reader per chapter
+      case EventTypes.VoteCast: {
+        const v = state.voting || {};
+        if (v.closed || (v.until && event.timestamp && event.timestamp > v.until)) break;
+        const on = ((state.votes ||= {})[event.data.chapterId] ||= {});
+        if (!on[event.data.voterId]) on[event.data.voterId] = { nickname: event.data.nickname || '', why: event.data.why || '', at: event.timestamp || null };
+        break;
+      }
+
+      case EventTypes.VoteWithdrawn:
+        if (!state.voting?.closed && state.votes?.[event.data.chapterId]) delete state.votes[event.data.chapterId][event.data.voterId];
+        break;
+
+      case EventTypes.VotingOpened:
+        state.voting = { closed: false, until: event.data.until || null };
+        break;
+
+      case EventTypes.VotingClosed:
+        state.voting = { closed: true, until: null };
+        break;
+
+      case EventTypes.ParagraphEdited:
+        if (state.paragraphs?.[event.data.paragraphId]) state.paragraphs[event.data.paragraphId].text = event.data.text;
         break;
 
       case EventTypes.PlanSentToPress:
@@ -399,13 +591,21 @@ export function projectState(eventStream = getEventStream()) {
         if (state.press) Object.assign(state.press, { stage: 'built', back: { ...event.data } });
         break;
 
+      case EventTypes.SliceProgressReported: {
+        const d = event.data;
+        const entry = { step: d.step, note: d.note || null, pr: d.pr || null, tests: d.tests || null, by: d.by || null, at: d.at || event.timestamp || null };
+        const was = state.progress[d.sliceId];
+        state.progress[d.sliceId] = { ...entry, history: [...(was?.history || []), entry] };
+        break;
+      }
+
       case EventTypes.SpecsGenerated:
       case EventTypes.SpecsRegenerated:
         (event.data.slices || []).forEach(id => { (state.specs ||= {})[id] = { app: event.data.app || null, at: event.timestamp || null }; });
         break;
 
       case EventTypes.SliceBuiltCleared:
-        if (state.slices[event.data.sliceId]) Object.assign(state.slices[event.data.sliceId], { built: false, builtCommit: null });
+        if (state.slices[event.data.sliceId]) Object.assign(state.slices[event.data.sliceId], { built: false, builtCommit: null, builtEdition: null });
         break;
 
       case EventTypes.SliceCompleted:
@@ -418,7 +618,7 @@ export function projectState(eventStream = getEventStream()) {
       // Scenario events
       case EventTypes.ModelSourceSet:
         state.modelSource = { repo: event.data.repo || null, commit: event.data.commit || null,
-          createdAt: event.data.createdAt || null, build: event.data.build || null };
+          createdAt: event.data.createdAt || null, build: event.data.build || null, ...(event.data.description ? { description: event.data.description } : {}) };
         break;
 
       case EventTypes.ScenarioMustHaveSet:
@@ -485,6 +685,15 @@ export function projectState(eventStream = getEventStream()) {
         }
         break;
         
+      case EventTypes.ThenNothingSet:
+        if (state.scenarios[event.data.scenarioId]) {
+          state.scenarios[event.data.scenarioId].then = {
+            type: 'nothing',
+            reason: event.data.reason
+          };
+        }
+        break;
+
       case EventTypes.ThenReadModelSet:
         if (state.scenarios[event.data.scenarioId]) {
           state.scenarios[event.data.scenarioId].then = {
@@ -526,11 +735,22 @@ export function projectState(eventStream = getEventStream()) {
 
   state.edition = editionOf(eventStream);
 
+  // What the book reads as: the kind she chose, else by a rule (no migration): points that already
+  // have paragraphs (an article outline in its second round) read as literature, the rest as fact books
+  state.kind = state.bookKind || (Object.keys(state.paragraphs || {}).length ? 'literature' : 'fact');
   return state;
 }
 
 // Slices in board order (left to right); inferred AU slices that were never
 // placed explicitly trail at the end
+// A slice's number, S1, S2… in board order: the same numbers the agents' outline uses, so she can
+// say "S3" to an agent and both mean the same slice (one count per projected state)
+const refsCache = new WeakMap();
+export function sliceRef(state, sliceId) {
+  if (!refsCache.has(state)) refsCache.set(state, new Map(getOrderedSlices(state).map((s, i) => [s.id, `S${i + 1}`])));
+  return refsCache.get(state).get(sliceId) || null;
+}
+
 export function getOrderedSlices(state = null) {
   return getBoardGroups(state).flatMap(g => g.slices);
 }
@@ -609,6 +829,12 @@ export function givenEventsOf(sliceId, state = null) {
     });
   });
   return [...seen.values()];
+}
+
+// SV: Spec Expectations — whether a spec is expected for a slice: not when its scenarios are waived
+export function specExpectation(sliceId, state = null) {
+  const waived = (state || projectState()).slices[sliceId]?.waived;
+  return { specExpected: !waived, waivedReason: waived ? waived.reason : '' };
 }
 
 // A slice's own events that no scenario starts from yet (no Given uses them): what a view

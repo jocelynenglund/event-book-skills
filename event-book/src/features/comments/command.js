@@ -42,25 +42,49 @@ export function setNickname(name) {
 
 const commentId = () => 'cm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
 
-export function addComment({ sliceId, scenarioId = null, part = null, text }) {
+// SC: Add Comment — a new thread: on a slice, one of its scenarios (or a Given/When/Then line),
+// or with no slice, on the board itself (the board chat)
+export function addComment({ sliceId = null, scenarioId = null, part = null, text }) {
   const nick = nickname();
   if (!nick) return 'Pick a nickname first';
   const body = String(text || '').trim();
   if (!body) return 'Write something first';
   const state = projectState();
-  if (!state.slices[sliceId]) return 'No such slice';
-  if (scenarioId && state.scenarios[scenarioId]?.sliceId !== sliceId) return 'No such scenario';
+  if (sliceId && !state.slices[sliceId]) return 'No such slice';
+  // A scenario, or in literature a sentence, which stands where a scenario would
+  if (scenarioId && (state.scenarios[scenarioId] || state.sentences?.[scenarioId])?.sliceId !== sliceId) return 'No such scenario';
   if (part && !PARTS.includes(part)) return 'A comment is on the given, the when or the then';
   appendEvent(EventTypes.CommentAdded, {
-    commentId: commentId(), sliceId, ...(scenarioId ? { scenarioId } : {}), ...(scenarioId && part ? { part } : {}),
+    commentId: commentId(), ...(sliceId ? { sliceId } : {}), ...(scenarioId ? { scenarioId } : {}), ...(scenarioId && part ? { part } : {}),
     text: body, nickname: nick, deviceId: commentDeviceId(), ...(signedIn()?.accountId ? { accountId: signedIn().accountId } : {}), at: new Date().toISOString()
   });
   return null;
 }
 
+// SC: Reply To Thread — a reply attaches to the thread (a reply to a reply joins the same
+// thread); replying to a resolved thread reopens it
+export function replyToThread({ threadId, text }) {
+  const nick = nickname();
+  if (!nick) return 'Pick a nickname first';
+  const body = String(text || '').trim();
+  if (!body) return 'Write something first';
+  const state = projectState();
+  const to = state.comments[threadId];
+  const root = to && !to.deleted ? (to.threadId ? state.comments[to.threadId] : to) : null;
+  if (!root || root.deleted) return 'No such thread';
+  appendEvent(EventTypes.CommentAdded, {
+    commentId: commentId(), threadId: root.id, ...(root.sliceId ? { sliceId: root.sliceId } : {}), ...(root.scenarioId ? { scenarioId: root.scenarioId } : {}),
+    ...(root.part ? { part: root.part } : {}), text: body, nickname: nick, deviceId: commentDeviceId(),
+    ...(signedIn()?.accountId ? { accountId: signedIn().accountId } : {}), at: new Date().toISOString(), ...(root.resolved ? { reopens: root.id } : {})
+  });
+  return null;
+}
+
+// SC: Resolve Thread — threads are what get resolved (a reply can't be, on its own)
 export function resolveComment(commentId) {
   const c = projectState().comments[commentId];
   if (!c || c.deleted) return 'No such comment';
+  if (c.threadId) return 'Resolve the thread, not a reply';
   if (c.resolved) return 'Already resolved';
   appendEvent(EventTypes.CommentResolved, { commentId, resolvedBy: nickname() || 'someone' });
   return null;

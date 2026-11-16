@@ -10,18 +10,23 @@ import { projectState } from '../../core/projections.js';
 
 // What a snapshot keeps: the projected state, less what's worked out again on load
 const KEEP = ['elements', 'slices', 'connections', 'scenarios', 'sliceOrder', 'chapters', 'chapterOrder',
-  'flows', 'modelName', 'modelDescription', 'updateRoles', 'modelSource', 'sliceDecisions', 'follow'];
+  'flows', 'modelName', 'modelDescription', 'preface', 'tags', 'updateRoles', 'modelSource', 'sliceDecisions', 'follow'];
 
 export function snapshotEvents(events) {
   const state = projectState(events);
   const kept = Object.fromEntries(KEEP.map(k => [k, state[k]]));
   // Automations inferred from older models are inferred again; don't freeze them in
   kept.slices = Object.fromEntries(Object.entries(state.slices).filter(([id]) => !id.startsWith('au_inferred_')));
+  return snapshotOf(kept, events.length);
+}
+
+// A ModelSnapshot event for state already worked out (a share link's scoped book)
+export function snapshotOf(kept, eventCount) {
   const now = new Date();
   return [{
     id: 'evt_' + now.getTime() + '_snap',
     type: EventTypes.ModelSnapshot,
-    data: { state: kept, events: events.length },
+    data: { state: kept, events: eventCount },
     batch: 'b_snap_' + now.getTime().toString(36),
     timestamp: now.toISOString()
   }];

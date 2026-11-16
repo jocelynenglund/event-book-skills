@@ -38,20 +38,22 @@
         <button class="header-btn burger-btn" onclick="window.EventPad.toggleBurger()">☰</button>
         <div class="burger-dropdown" id="burgerDropdown" style="display:none">
           <button class="burger-item burger-bookshelves" id="bookshelvesItem" onclick="window.EventPad.showLibrary(); window.EventPad.toggleBurger()">▤ Bookshelves</button>
+          <button class="burger-item" id="prefaceItem" hidden onclick="window.EventPad.showPreface(); window.EventPad.toggleBurger()">📖 Preface</button>
           <button class="burger-item hd-hide" id="hideHeaderBtn" onclick="window.EventPad.toggleBurger()">⤢ Hide the header</button>
           <div class="burger-row">
             <button class="burger-item" id="undoBtn" disabled onclick="window.EventPad.undo(); window.EventPad.toggleBurger()">↶ Undo</button>
             <button class="burger-item" onclick="window.EventPad.replay(); window.EventPad.toggleBurger()">⏱ Replay</button>
-            <button class="burger-item" onclick="window.EventPad.compare(); window.EventPad.toggleBurger()">↔ Compare</button>
+            <button class="burger-item" id="compareItem" onclick="window.EventPad.compare(); window.EventPad.toggleBurger()">↔ Compare</button>
           </div>
           <button class="burger-item" onclick="window.EventPad.openExport(); window.EventPad.toggleBurger()">⬇ Export…</button>
           <button class="burger-item" onclick="document.getElementById('importFileInput').click(); window.EventPad.toggleBurger()">⬆ Import…</button>
           <button class="burger-item" onclick="window.EventPad.openSettings(); window.EventPad.toggleBurger()">⚙ Settings…</button>
           <button class="burger-item" onclick="window.EventPad.showAbout(); window.EventPad.toggleBurger()">ⓘ About</button>
+          <button class="burger-item" onclick="document.dispatchEvent(new Event('itsybit-feedback:open')); window.EventPad.toggleBurger()">💬 Send feedback</button>
           <div class="burger-version" id="appVersion"><span style="font-size: 10px; opacity: 0.5;">v2026.04.12.08:38</span></div>
         </div>
       </div>
-      <input type="file" id="importFileInput" accept=".json" multiple style="display:none" onchange="window.EventPad.importModel(this)">
+      <input type="file" id="importFileInput" accept=".json,.md,.markdown,.txt,text/markdown,text/plain" multiple style="display:none" onchange="window.EventPad.importModel(this)">
     </div>
   </div>
 
@@ -89,6 +91,11 @@
   <div class="slice-view" id="sliceView" style="display:none;"></div>
   <!-- Plan vs built: an outlined model beside the one built from its tests -->
   <div class="slice-view compare-view" id="compareView" style="display:none;"></div>
+  <!-- A book's preface: its description, the first page -->
+  <div class="preface-view" id="prefaceView" style="display:none;"></div>
+
+  <!-- Read: a literature book's home, the piece as prose (in place of the board) -->
+  <div class="read-view" id="readView" style="display:none;"></div>
 
   <div class="board-view" id="boardView">
     <div class="bd-stats" id="boardStats"></div>
@@ -145,18 +152,6 @@
     <div class="sheet">
       <div class="sheet-handle"></div>
       <div id="propertySheetContent"></div>
-    </div>
-  </div>
-
-  <!-- Propagate Properties Sheet -->
-  <div class="sheet-overlay" id="propagateSheet">
-    <div class="sheet">
-      <div class="sheet-handle"></div>
-      <div class="sheet-title" id="propagateTitle">Copy properties?</div>
-      <div class="sheet-subtitle" id="propagateSubtitle" style="font-size:13px; opacity:0.6; margin-bottom:12px;"></div>
-      <div id="propagateTargets"></div>
-      <button class="sheet-btn" onclick="window.EventPad.confirmPropagate()">Copy to selected</button>
-      <button class="sheet-btn" style="background:transparent; color: var(--text-muted); margin-top:4px;" onclick="window.EventPad.skipPropagate()">Skip</button>
     </div>
   </div>
 
@@ -292,14 +287,9 @@
       <div class="share-what">
         <!-- The choice is kept in the hidden select; the button and panel pick it, with a search for long lists -->
         <select id="shareScope" aria-hidden="true" tabindex="-1" class="share-scope-store"></select>
-        <button type="button" class="sheet-input share-scope" id="shareScopeBtn" aria-haspopup="listbox" aria-expanded="false" hidden>
-          <span id="shareScopeLabel">Whole model</span><span class="share-scope-caret">▾</span>
-        </button>
-        <div class="share-format" role="group" aria-label="Format">
-          <button data-share-set="format" data-value="board">Picture</button>
-          <button data-share-set="format" data-value="slides">Slides 4:5</button>
-          <button data-share-set="format" data-value="outline">Outline</button>
-        </div>
+        <!-- The scope button, the format buttons and the option chips are drawn by the sheet's components -->
+        <span id="shareScopeMount" style="display: contents"></span>
+        <div class="share-format" id="shareFormat" role="group" aria-label="Format"></div>
       </div>
       <div class="share-scope-panel" id="shareScopePanel" hidden>
         <input type="search" class="sheet-input" id="shareScopeSearch" placeholder="Search chapters…" autocomplete="off" aria-label="Search chapters">
@@ -309,14 +299,7 @@
       <!-- Everything else folds away -->
       <details class="share-more" id="shareMore">
         <summary id="shareMoreSummary">Options</summary>
-      <div class="share-chips">
-        <button class="share-chip" data-share-opt="theme" data-on="dark" data-off="light">Chalkboard</button>
-        <button class="share-chip" id="sharePropsOpt" data-share-opt="showProps" data-on="true" data-off="false">Fields</button>
-        <button class="share-chip" id="shareDescOpt" data-share-opt="showDescription" data-on="true" data-off="false">Description</button>
-        <button class="share-chip" id="shareNotesOpt" data-share-opt="showSliceNotes" data-on="true" data-off="false">Slice notes</button>
-        <button class="share-chip" id="shareGwtOpt" data-share-opt="showScenarios" data-on="true" data-off="false">Scenarios</button>
-        <button class="share-chip" id="shareFoldOpt" data-share-opt="foldChapters" data-on="true" data-off="false">Folded chapters</button>
-      </div>
+      <div class="share-chips" id="shareChips"></div>
       </details>
       <button class="sheet-btn" id="shareGo">Share image</button>
       <div class="share-secondary">
@@ -331,6 +314,15 @@
 
   <script type="module" src="src/main.js"></script>
   <script src="slices/whats-new/whats-new.js"></script>
+  <!-- The shared itsybit Feedback widget (bug reports and ideas). -->
+  <script>
+    // Only on the real site, so local runs and the browser tests never load it.
+    if (/(^|\.)itsybit\.se$/.test(location.hostname)) {
+      const fb = document.createElement('script');
+      fb.src = 'https://feedback.itsybit.se/widget.js'; fb.dataset.app = 'eventpad'; fb.dataset.launcher = 'none'; fb.defer = true;
+      document.body.appendChild(fb);
+    }
+  </script>
   <script>
     document.addEventListener('click', (e) => {
       const dd = document.getElementById('burgerDropdown');

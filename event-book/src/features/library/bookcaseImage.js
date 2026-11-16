@@ -240,6 +240,6 @@ export async function renderBookcaseImage({ sections, square = false }) {
     ctx.fillText('No books here yet', W / 2, HEAD + 100);
   }
   ctx.fillStyle = INK; ctx.font = `700 22px ${MONO}`; ctx.textAlign = 'right';
-  ctx.fillText('Made with Event Book · eventpad.itsybit.se', W - M, height - 40);
+  ctx.fillText('Made with Event Book · eventbook.itsybit.se', W - M, height - 40);
   return canvas;
 }

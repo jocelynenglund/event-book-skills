@@ -3,7 +3,7 @@
 // SC: Record Test Verdict — a scenario tried in the shipped app: ✓ works or ✗ doesn't (a ✗
 // says what happened, and that note becomes a comment on the scenario). On a published
 // edition, or through a verification link (a review with purpose 'test'). Talk, not a
-// change: allowed on a frozen book. The latest verdict per scenario counts.
+// change: allowed on a frozen book. Each tester's own latest verdict counts; the scenario's overall one is ✗ if any tester's is.
 // SV: Verification Results — per edition: tried, works, fails (with notes), untested.
 // ===========================================
 
@@ -11,6 +11,7 @@ import { appendEvent, EventTypes, getCurrentModelId } from '../../core/eventStor
 import { reviewOf } from '../review/client.js';
 import { projectState, getScenariosForSlice, getOrderedSlices } from '../../core/projections.js';
 import { nickname, addComment } from '../comments/command.js';
+import { testersOf, overallOf } from './verdictRules.js';
 
 export const VERDICTS = ['works', 'fails'];
 
@@ -29,16 +30,14 @@ export function recordVerdict({ sliceId, scenarioId, verdict, note = '' }, editi
   return null;
 }
 
-// What was tried in an edition, and how it went; untested counts every scenario in the book
+// What was tried in an edition, and how it went; untested counts every scenario in the book. A scenario's
+// verdict is its overall one (verdictRules.js): ✗ when any tester's current verdict is ✗
 export function verificationResults(state, edition) {
-  const v = state.verdicts?.[edition] || {};
-  const all = getOrderedSlices(state).flatMap(s => getScenariosForSlice(s.id, state).map(scn => ({ sliceId: s.id, scenarioId: scn.id, name: scn.name })));
-  const tried = all.filter(x => v[x.scenarioId]);
-  const failing = tried.filter(x => v[x.scenarioId].verdict === 'fails').map(x => ({ ...x, note: v[x.scenarioId].note }));
+  const all = getOrderedSlices(state).flatMap(s => getScenariosForSlice(s.id, state).map(scn => ({ sliceId: s.id, scenarioId: scn.id, name: scn.name, testers: testersOf(state, edition, scn.id) })));
+  const tried = all.filter(x => x.testers.length);
+  const failing = tried.filter(x => overallOf(x.testers) === 'fails').map(x => ({ sliceId: x.sliceId, scenarioId: x.scenarioId, name: x.name, note: x.testers.find(t => t.verdict === 'fails')?.note || null }));
   return { edition, tested: tried.length, works: tried.length - failing.length, fails: failing.length, untested: all.length - tried.length, failing };
 }
-
-export const verdictOf = (state, edition, scenarioId) => state.verdicts?.[edition]?.[scenarioId] || null;
 
 // The edition being verified here: a test review's, or a published edition's (a build book's
 // latest); null while planning

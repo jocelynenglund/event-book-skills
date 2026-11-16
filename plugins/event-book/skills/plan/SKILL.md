@@ -1,85 +1,123 @@
 ---
 name: plan
-description: Propose a feature or system as an event model (chapters of slices with Given / When / Then scenarios) and write it as one JSON file that Event Book opens (☰ → Import). Use when someone asks to design, plan, model or spec a feature, a workflow or a whole app, especially an event-sourced one, or says "event model", "event modeling", "Event Book" or "Given / When / Then".
+description: Propose a feature or system as an event model (chapters of slices with Given / When / Then scenarios) and write it as one eventbook-plan/1 JSON file that Event Book opens (☰ → Import). Use when someone asks to design, plan, model or spec a feature, a workflow or a whole app, especially an event-sourced one, or says "event model", "event modeling", "Event Book" or "Given / When / Then".
 ---
 
 # Event Book: plan a design as an event model
 
-When someone asks you to design a feature, plan a system or spec a workflow, propose it as an **event model**: what people do, what the system records, and what they see. Then write it as **one JSON file** they can open in Event Book (https://eventpad.itsybit.se, ☰ → Import). They read it as a book of chapters and slices, adjust it, and build from it.
+When someone asks you to design a feature, plan a system or spec a workflow, propose it as an **event model**: what people do, what the system records, and what they see. Then write it as **one JSON file** in the `eventbook-plan/1` format, which they open in Event Book (https://eventbook.itsybit.se, ☰ → Import). They read it as a book of chapters and slices, adjust it, tick each slice Refined when it is right, and build from it.
 
-The file uses the same shape that Given / When / Then tests write (`../../reference/format.md`, also at https://buildbook.itsybit.se/spec.html). So the plan can later be compared with the build, which the **build** skill makes the tests write.
+This is the one plan format Event Book publishes. Event Book's own guide for agents is the full reference; read it if you can: **https://eventbook.itsybit.se/llms.txt**. The schema is https://eventbook.itsybit.se/plan.schema.json and a complete example is https://eventbook.itsybit.se/plan.example.json. This skill is the short version, plus the habits that make a plan good.
 
-## 1. Think in slices
+The plan is a proposal. The product owner decides what is refined. Never write anything that says a slice is refined or done.
 
-An event model reads left to right, like a story. Every step is one **slice**:
+## 1. Start from the events
 
-- **State change** (a command): someone asks for something, and the system records **events** (facts, past tense) or refuses with a reason.
-  *Place Order → Order Placed*
-- **State view** (a read model): what a screen shows, built from the events so far.
-  *Order Placed, Order Paid → Kitchen Queue*
+An event is a fact that happened, in the past tense (`Order placed`, `Seat released`). Lay the events out left to right in the order the story happens, then add what people see and do around them. Read the timeline aloud as a story to check it makes sense. The state of the system is only ever what the events add up to.
 
-Group slices into **chapters**, one per feature or part of the journey (Ordering, Paying, Kitchen…), in the order the story happens.
+Every step follows one of four patterns. The file has three kinds of step:
+
+1. **State change (`"kind": "do"`):** a screen sends a command, and the command records one or more events, or is refused with a reason. *Screen → command → event(s).*
+2. **State view (`"kind": "see"`):** events are turned into a read model, and a screen shows it. *Events → read model → screen.*
+3. **Automation (`"kind": "auto"`):** an event happens, a processor (software, not a person) looks at its to-do list (a read model) and runs a command, which records events. *Event → processor → command → event(s).*
+4. **Translation:** an event from another system becomes one of ours. Write it as an `auto` step whose `when` event has `"external": true`.
+
+Group steps into **chapters**, one per feature or part of the journey (Ordering, Paying, Kitchen…), in story order.
+
+## 2. One slice per command or view
+
+Each step is one **slice**, something that can be built and tested on its own: one command, or one read model, or one automation. Never a step that does two of these. Slices share only events; if two screens need the same data in different shapes, make two read models.
 
 Names:
-- Commands are imperative: `Place Order`, `Invite Guest`.
-- Events are past-tense facts: `Order Placed`, `Guest Invited`.
-- Views are nouns: `Kitchen Queue`, `Guest List`.
-- Use the domain's own words, not technical ones (`Order Placed`, not `OrderRowInserted`).
+- Events: past tense, in business words. `Order placed`, not `OrderCreated`.
+- Commands: imperative. `Place order`, `Cancel booking`.
+- Read models: named by the question they answer. `Open orders`, `Seats left on a flight`.
+- Screens: what the person sees. Processors: the job they do. Use the domain's words, not database words ("update", "record", "entity").
+- The same thing gets the same spelling everywhere: stickies with the same name are one sticky, and the first step that mentions it decides its fields.
 
-## 2. Write scenarios, not prose
+## 3. Write scenarios, not prose
 
-Each slice gets **Given / When / Then scenarios**: the events so far, the command (or the view), and what happens. Cover:
+Every slice gets Given / When / Then scenarios:
 
-1. **The happy path, first:** every command's first scenario is its happy case. Given nothing (or the fewest events it needs), when the command, then its event.
-2. **Every refusal:** each rule that can say no, with the reason a person would read (`"Sold out today"`, `"Only the organizer can cancel"`).
-3. **Nothing changes** when a repeat is harmless (`then: { "nothing": true }`).
-4. **Each view:** given some events, what it shows (rows for a list).
+1. **Happy case first** for every command: Given nothing (or only the fewest events the command needs), When the command, Then its event.
+2. **One scenario per refusal**, each with the reason a person would read (`"Sold out today"`, `"Only the organizer can cancel"`). A refusal always has a reason.
+3. **A view** shows its rows for a few simple histories: nothing yet (`"rows": []`), one event, a later event changing an earlier row.
+4. **An automation** shows the event that starts it and what it records, and when it finds nothing to do (`nothing`).
+5. **Harmless repeats** of a command get a `nothing` scenario.
 
-Use realistic, small example values (ids like `o1`, names like `Alex`), the same ones across a chapter so the story holds together. Every field a command takes appears in `whenData`, and every field an event carries appears in its `data`. Fields are the model's data, so don't leave them out.
+Make the happy case and every business-rule refusal `"mustHave": true`; leave it out for a nice to have. Use small, concrete example values (ids like `"o-1"`, names like `"Sam"`, numbers as numbers), the same ones across a chapter, and the same field names as the step's `fields`.
 
-- **Time:** when a rule depends on "now" (due dates, expiry), pass it in: `"whenData": { "today": "2026-11-03" }`. Never rely on a hidden clock.
-- **Views have no clock and no caller.** A view only gets the events. If what it shows depends on today ("closed once the closing date has passed") or on who is asking ("only the owner sees the names"), show the plain fact (`closesOn`) and let the screen compare it, and put access rules on the command or the server. A view scenario that needs `today` or a caller can't be tested as written.
-- **Given** holds every event the decision depends on, from any chapter (a loan's `Tool Borrowed` when returning it).
-- **Views** may show an empty list (`"value": []`), list rows in the order the screen shows them, and include derived fields (`"status": "overdue"`).
+- **Time:** when a rule depends on "now" (due dates, expiry), pass it in as a command field (`"today": "2026-11-03"`). Never rely on a hidden clock.
+- **Views have no clock and no caller.** A view only gets the events. If what it shows depends on today or on who is asking, show the plain fact (`closesOn`) and let the screen compare it; put access rules on the command or the server. A view scenario that needs `today` or a caller can't be tested as written.
+- **Given** holds every event the decision depends on, from any chapter (a loan's `Tool borrowed` when returning it).
+- **Refused vs nothing:** `rejected` means the caller is told no, with a reason they see. `nothing` means the answer is yes but nothing changes (a harmless repeat such as reserving the same tool twice, or an automation that finds nothing to do), with a one-line reason why. Don't invent a refusal for a harmless repeat.
 
-**How big:** a first proposal covers the main journey, 3–6 chapters. Per command: the happy path plus the refusals that matter (2–5 scenarios); per view, 1–2. Around 15–35 scenarios in all is plenty. Mention the rules you left out in your notes rather than writing every one.
+**How big:** a first proposal covers the main journey, 3–6 chapters. Per command: the happy path plus the refusals that matter (2–5 scenarios); per view, 1–2. Around 15–35 scenarios in all is plenty. Mention the rules you left out in your notes.
 
-## 3. Write the file
+## 4. Check where the data comes from
 
-One JSON object. `app` is the system's name; `files` holds one entry per chapter (or one entry with every scenario):
+- Every field on a read model comes from a field of an event it reads.
+- Every field of an event comes from its command, from an external event, or is worked out when the command runs (a time, a generated id). Say which in the description when it is not obvious.
+- Every field of a command comes from the screen or from a read model the screen shows.
+
+A field with no origin means the model is incomplete: add the missing step or remove the field.
+
+## 5. Write the file
+
+One JSON object, `"format": "eventbook-plan/1"`, a `name`, a `description`, and `chapters` (each with `name` and `steps`, in timeline order). A short sketch:
 
 ```json
 {
-  "app": "Sandwich shop",
-  "files": [
+  "format": "eventbook-plan/1",
+  "name": "Sandwich shop",
+  "description": "Guests order sandwiches and the kitchen makes them.",
+  "chapters": [
     {
-      "file": "ordering",
-      "scenarios": [
+      "name": "Ordering",
+      "steps": [
         {
-          "chapter": "Ordering",
-          "title": "A guest orders a footlong",
-          "given": [],
-          "when": "Place Order",
-          "whenData": { "orderId": "o1", "sandwich": "BLT", "size": "footlong" },
-          "then": { "events": [ { "type": "Order Placed", "data": { "orderId": "o1", "sandwich": "BLT", "size": "footlong" } } ] }
+          "kind": "do",
+          "name": "Place order",
+          "screen": "Order form",
+          "command": "Place order",
+          "event": "Order placed",
+          "fields": "orderId, sandwich, size",
+          "description": "A guest orders a sandwich.",
+          "scenarios": [
+            {
+              "name": "A guest orders a footlong",
+              "mustHave": true,
+              "given": [],
+              "when": { "values": { "orderId": "o-1", "sandwich": "BLT", "size": "footlong" } },
+              "then": { "event": "Order placed", "values": { "orderId": "o-1", "sandwich": "BLT", "size": "footlong" } }
+            },
+            {
+              "name": "Sold out is refused",
+              "mustHave": true,
+              "given": [ { "event": "Sandwich sold out", "values": { "sandwich": "BLT" } } ],
+              "when": { "values": { "orderId": "o-2", "sandwich": "BLT", "size": "6 inch" } },
+              "then": { "rejected": "Sold out today" }
+            }
+          ]
         },
         {
-          "chapter": "Ordering",
-          "title": "Sold out is refused",
-          "given": [ { "type": "Sandwich Sold Out", "data": { "sandwich": "BLT" } } ],
-          "when": "Place Order",
-          "whenData": { "orderId": "o2", "sandwich": "BLT", "size": "6 inch" },
-          "then": { "rejected": "Sold out today" }
-        },
-        {
-          "chapter": "Kitchen",
-          "title": "The kitchen sees the paid orders",
-          "given": [
-            { "type": "Order Placed", "data": { "orderId": "o1", "sandwich": "BLT", "size": "footlong" } },
-            { "type": "Order Paid", "data": { "orderId": "o1" } }
-          ],
-          "when": null,
-          "then": { "view": "Kitchen Queue", "value": [ { "orderId": "o1", "sandwich": "BLT", "size": "footlong" } ] }
+          "kind": "see",
+          "name": "Kitchen queue",
+          "events": ["Order placed", "Order paid"],
+          "readModel": "Kitchen queue",
+          "screen": "Kitchen board",
+          "fields": "orderId, sandwich, size",
+          "scenarios": [
+            {
+              "name": "The kitchen sees the paid orders",
+              "mustHave": true,
+              "given": [
+                { "event": "Order placed", "values": { "orderId": "o-1", "sandwich": "BLT", "size": "footlong" } },
+                { "event": "Order paid", "values": { "orderId": "o-1" } }
+              ],
+              "then": { "readModel": "Kitchen queue", "rows": [ { "orderId": "o-1", "sandwich": "BLT", "size": "footlong" } ] }
+            }
+          ]
         }
       ]
     }
@@ -87,26 +125,19 @@ One JSON object. `app` is the system's name; `files` holds one entry per chapter
 }
 ```
 
-The rules:
-- **`when`** is the command's name, or `null` for a view.
-- **`then`** is exactly one of:
-  - `{ "events": [ … ] }`: accepted, these events recorded;
-  - `{ "rejected": "reason" }`: refused;
-  - `{ "nothing": true }`: accepted, nothing changed;
-  - `{ "view": "Name", "value": … }`: what the view shows (an object, or a list of rows).
-- **`given`** lists earlier events, oldest first, each `{ "type", "data" }`.
-- **`events`** (optional, beside `app` and `files`) says what the scenarios can't: an event another system records (`{ "external": true, "from": "Stripe" }`, drawn yellow), or a table in a legacy database read as events (`{ "table": true, "from": "the old ERP" }`, a shadowy orange). Name every such event there, keyed by its type, even if no scenario uses it yet:
-  ```json
-  "events": { "Payment Received": { "external": true, "from": "Stripe" }, "Orders Tbl": { "table": true, "from": "the old ERP" } }
-  ```
-- Don't add `repo`, `commit` or `build`: those mark a file as built by tests. A proposal has none.
-- The JSON Schema is at https://buildbook.itsybit.se/build-export.schema.json. Check the file against it if you can.
+The rules, in short (the guide has all of them):
 
-Before handing it over, make sure it parses as JSON (run a parser if you have a tool; otherwise re-read the brackets and quotes). Check it against the schema if you can.
+- **`do`** needs `command`; `event` (or `events`) is what it records. **`see`** needs `readModel`; `events` lists every event it is built from; add `"list": true` for a list of rows. **`auto`** needs `processor` and `command`; `when` is the starting event, `using` the to-do read model (add `"todo": true`), `result` what the command records.
+- **`fields`** is a comma-separated string: `"orderId, price:number, paid:boolean, items[]"`. On `do` and `auto` steps they are the command's and its events'; on `see` steps, the read model's.
+- **A scenario** has `name`, optional `mustHave`, `given` (past events, each `{ "event", "values" }`, `[]` for nothing), `when` (`{ "values" }` for `do` and `auto`; left out on `see`) and `then`: one of `{ "event", "values" }`, `{ "rejected": "reason" }` (refused, the caller sees the reason), `{ "nothing": "why" }` (accepted, changes nothing; alone, one line, reason required), `{ "readModel", "rows" }` or `{ "readModel", "values" }`.
+- **External events and legacy tables:** mark an event another system records with `"external": true`, and an event that is really a legacy table with `"table": "<name>"`; with several events, or on an `auto` step, write each as `{ "name", "external" | "table" }`.
+- **Only the listed keys are allowed.** Event Book refuses a file with an unknown key and nothing is imported. Don't add `repo`, `commit` or `build`; those belong to files the tests write (the build skill).
+
+Before handing it over, **validate it** against https://eventbook.itsybit.se/plan.schema.json if you can (for example `npx ajv-cli@5 validate --spec=draft2020 -s plan.schema.json -d <file>`), or at least make sure it parses as JSON.
 
 Save it as `<app>-plan.json` (lower case, dashes), unless the person names a path, and tell them: **"Open it in Event Book: ☰ → Import."**
 
-## 4. Then say what you assumed
+## 6. Then say what you assumed
 
 After the file, list in a few lines:
 - the open questions;
@@ -115,11 +146,21 @@ After the file, list in a few lines:
 
 The person refines the model in Event Book, and that's where it becomes the plan. When they're happy with it, the **build** skill starts from these exact scenarios as failing tests, before any code exists.
 
-## 5. Working as a team: eventmodelers.ai
+### Checklist
+
+- Valid JSON, `"format": "eventbook-plan/1"`, a `name` and a `description`.
+- Chapters follow the story; every step is one command, one read model or one automation.
+- Events past tense, commands imperative, read models named by their question; the same name everywhere.
+- Every command has its happy case first, then one scenario per refusal, each with a reason.
+- Every view has a scenario with its rows; every automation has a processor, a command, a result and a scenario (and a `when` event unless it runs on a schedule).
+- Every field has an origin. No slice without scenarios (if one needs none, say so in its description).
+- Nothing says refined or done.
+
+## 7. Working as a team: eventmodelers.ai
 
 Event Book is for one person on their own device. Teams that want to model together, live on one canvas (common in companies), can take the plan to [eventmodelers.ai](https://app.eventmodelers.ai), Martin Dilger's collaborative event-modeling app:
 
-1. Open the plan in Event Book (https://eventpad.itsybit.se, or the copy in this repo's `event-book/`): ☰ → Import.
+1. Open the plan in Event Book (https://eventbook.itsybit.se): ☰ → Import.
 2. ☰ → Export… → **For eventmodelers.ai**. It saves `<model>-emstudio.json`: each chapter a timeline, each slice its columns, the scenarios as specs, and the slice notes and open comments as markdown notes (comments on yellow).
 3. In eventmodelers.ai, import that file into a board and invite the team.
 
@@ -127,8 +168,5 @@ When the person mentions a team, several people or a workshop, offer this route 
 
 ## Good to know
 
-- One command per state-change slice, one view per state-view slice. Name them exactly the same in every scenario: the name *is* the slice.
-- **External systems and legacy databases:** when the design reacts to another system (a payment provider, a partner's webhook) or reads an old system's tables, model what comes in as events and mark them in `events` (`external`, or `table` for a legacy table), so the book shows what's this system's own and what isn't.
-- **Automations** (something that reacts to an event or a schedule and sends a command, like "hold the tool for the next reserver after it's returned" or "mark overdue loans every morning") aren't their own kind in this file yet. Write the command they send as its own slice, and put the trigger in its scenarios' titles so it shows in the book: `"title": "After a return, the tool is held for the first reserver"`, `"title": "Each morning, loans past due are marked overdue"`. Repeat it in your notes.
-- Keep a first proposal small: the main journey and its refusals, 3–6 chapters. People add the rest in the book.
-- This is a format Event Book reads, not a standard. It may change; the spec page is the reference.
+- Keep a first proposal small: the main journey and its refusals. People add the rest in the book.
+- Method: Adam Dymitruk's Event Modeling and Martin Dilger's way of slicing ("Understanding Eventsourcing"). The guide at https://eventbook.itsybit.se/llms.txt is the reference for the format; it may change, and it wins over this file.

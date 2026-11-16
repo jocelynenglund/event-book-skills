@@ -3,8 +3,10 @@
 // The export is what tests/gwt (and ItsyBIT.EventStore.Testing) write with GWT_EXPORT:
 // per test file, a list of scenarios
 //   { chapter, title, given: [{ type, data }], when, whenData?,
-//     then: { events } | { rejected } | { nothing } | { view, value },
-//     pending?, passing? }   (a generated spec "not built yet": not passing yet shows its planned Then)
+//     then: { events } | { rejected } | { nothing } | { view, value, component?, shows? },
+//     tap?, pending?, passing? }   (a generated spec "not built yet": not passing yet shows its planned Then)
+// A component test's component (a view drawn on screen) and tap (the screen part a command was
+// tapped on) are the slice's screen.
 // Pipelines combine an app's files into one: { app, commit, createdAt, files: [[…], …] }.
 // An optional events catalog says what the scenarios can't: { "<Type>": { external, table, from } }
 // (external: another system records it; table: a legacy table read as events).
@@ -13,18 +15,46 @@
 // Pure: no browser, no files. Used by ☰ → Import and tools/model-from-code/eventpad.mjs.
 // ===========================================
 
+export const NO_SCREEN = 'Not on a screen';
+
 export const label = cls => String(cls).replace(/(?<=[a-z0-9])(?=[A-Z])/g, ' ');
 
+// A field's type from its value: an …Id is a guid only when its value is one (Secret Santa's ids are base36 strings)
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const fieldType = (k, v) => Array.isArray(v) ? 'array' : typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean'
-  : v && typeof v === 'object' ? 'object' : /Id$/.test(k) ? 'guid' : 'string';
+  : v && typeof v === 'object' ? 'object' : /Id$/.test(k) && typeof v === 'string' && GUID.test(v) ? 'guid' : 'string';
+// Only a plain object has fields: a test may record a string, a list or null on purpose (a malformed payload)
+const plain = d => d !== null && typeof d === 'object' && !Array.isArray(d);
 const text = v => (typeof v === 'string' ? v : JSON.stringify(v));
 
 // A combined export's scenarios: files are { file, scenarios } (0.5.0) or bare lists (older)
+// With the browser pass's seenOn ({ screen: [component names] }), each component test's scenario says
+// on which screens its component was seen (seenOn: [] when on none)
 export function scenariosOf(exp) {
-  return (exp?.files || []).flatMap(f => Array.isArray(f) ? f : (f?.scenarios || []));
+  const list = (exp?.files || []).flatMap(f => Array.isArray(f) ? f : (f?.scenarios || []));
+  if (!exp?.seenOn) return list;
+  const seen = name => Object.entries(exp.seenOn).filter(([, names]) => names.includes(name)).map(([screen]) => screen);
+  return list.map(s => {
+    const name = s.then?.componentAt ? s.then.component : s.tapAt ? s.tap : null;
+    return name ? { ...s, seenOn: seen(name) } : s;
+  });
 }
 const codeOf = s => s.slice?.file ? `${s.slice.file}${s.slice.line ? `:${s.slice.line}` : ''}` : null;
-const values = data => Object.fromEntries(Object.entries(data || {}).map(([k, v]) => [k, text(v)]));
+// A scenario's values: a plain object's fields; anything else (a malformed payload) whole, as one value
+const values = data => plain(data) ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, text(v)])) : data == null ? {} : { payload: text(data) };
+
+// The feature a code file belongs to: src/features/<feature>/… the folder humanized, the MCP tools "Agent tools",
+// tools/<x>.mjs the file humanized, src/core "Core"; anything else null (the slice keeps its test's chapter)
+const humanize = w => { const s = w.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ').toLowerCase(); return s[0].toUpperCase() + s.slice(1); };
+export function featureOf(file) {
+  const f = String(file || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  let m;
+  if ((m = f.match(/^src\/features\/([^/]+)\//))) return humanize(m[1]);
+  if (/^tools\/eventpad-mcp\//.test(f)) return 'Agent tools';
+  if ((m = f.match(/^tools\/([^/]+?)\.[cm]?js$/))) return humanize(m[1]);
+  if (/^src\/core\//.test(f)) return 'Core';
+  return null;
+}
 
 // name, description: the model's; eventTypes: the app's event catalog (default: every
 // event the export mentions); codeFile(kind, name): where a command / view lives, for the
@@ -34,7 +64,7 @@ export function specFromScenarios(scenarios, { name, description, eventTypes, co
 
   // Fields: every key the tests recorded for an event type
   const fields = {};
-  const seen = (type, data) => Object.entries(data || {}).forEach(([k, v]) => {
+  const seen = (type, data) => Object.entries(plain(data) ? data : {}).forEach(([k, v]) => {
     fields[type] ||= {};
     fields[type][k] ||= fieldType(k, v);
   });
@@ -58,19 +88,47 @@ export function specFromScenarios(scenarios, { name, description, eventTypes, co
       else if (field.unsure && v !== null) { field.type = fieldType(k, v); delete field.unsure; }
     }));
   };
+  // A slice's chapter: the screen it is on (the first in its Used by), "Not on a screen" when its Used by
+  // is empty, else its test's chapter (rules with no UI). A slice is its test's chapter + its name, as before;
+  // the chapter is a heading only (Compare, editions and plans match slices by name)
+  const usedOf = s => (s.then || {}).usedBy || s.usedBy;
+  const homes = new Map();
+  const groupKey = s => `${s.chapter || 'Other'}\u0000${s.then?.view ? 'V' : 'C'}\u0000${s.then?.view || s.when}`;
+  for (const s of scenarios) {
+    const used = usedOf(s), key = groupKey(s);
+    // Only a UI test (a component test or a tap) puts its slice on a screen: an API book can carry the
+    // web's usedBy without them, and those slices stay in their feature's chapter
+    if (!Array.isArray(used) || !(s.then?.view ? s.then.componentAt : s.tapAt)) continue;
+    if (!homes.has(key)) homes.set(key, { used });
+  }
+  // Rules with no screen, in a UI book (some scenario is a component test or a tap): the chapter is the feature
+  // their code lives in, so the book has no one-slice chapters. An API book keeps its tests' chapters
+  const uiBook = scenarios.some(s => s.then?.componentAt || s.tapAt);
+  const codeFiles = new Map();
+  for (const s of scenarios) if (s.slice?.file && !codeFiles.has(groupKey(s))) codeFiles.set(groupKey(s), s.slice.file);
+  const screenNames = new Set([NO_SCREEN]);
+  homes.forEach(h => h.used.forEach(u => screenNames.add(u.screen || 'Other')));
+  const homeOf = s => {
+    const home = homes.get(groupKey(s));
+    if (home) return home.used.length ? (home.used[0].screen || 'Other') : NO_SCREEN;
+    const feature = uiBook ? featureOf(codeFiles.get(groupKey(s))) : null;
+    return feature ? (screenNames.has(feature) ? `${feature} (rules)` : feature) : (s.chapter || 'Other');
+  };
   for (const s of scenarios) {
     const then = s.then || {};
-    const ch = chapterOf(s.chapter || 'Other');
+    const ch = chapterOf(homeOf(s));
     const isView = !!then.view;
     const sliceName = isView ? then.view : s.when;
     if (!sliceName) continue;
     let slice = ch.slices.find(x => (isView ? x.readModel : x.command) === sliceName);
     if (!slice) {
-      slice = isView ? { kind: 'SV', readModel: sliceName, fields: [], events: [] } : { kind: 'SC', command: sliceName, screen: null, fields: [], events: [] };
+      slice = isView ? { kind: 'SV', readModel: sliceName, screen: null, fields: [], events: [] } : { kind: 'SC', command: sliceName, screen: null, fields: [], events: [] };
       slice.description = '';
       slice.scenarios = [];
       ch.slices.push(slice);
     }
+    // The screen part it's drawn on (a component test), or the one a command was tapped on
+    if (!slice.screen) slice.screen = (isView ? then.component : s.tap) || null;
     // Its code: where the test says the deciding code is; else found by name (when a codeFile is given)
     if (!slice.code) {
       slice.code = codeOf(s) || null;
@@ -79,6 +137,26 @@ export function specFromScenarios(scenarios, { name, description, eventTypes, co
     if (!slice.code && !slice.description && codeFile) {
       const file = codeFile(isView ? 'view' : 'command', sliceName);
       if (file) slice.description = `Code: ${file}`;
+    }
+    // Where its screen part is (a component test), and the app's screens that show it or handle the tap
+    // that runs it (every slice the tests reach the code of): "⚠ no screen reaches it" when none
+    const at = isView ? then.componentAt : s.tapAt, usedBy = then.usedBy || s.usedBy;
+    if (at && !slice.screenAt) {
+      slice.screenAt = `${at.file}:${at.line}`;
+      slice.description = [slice.description, `Screen: ${slice.screenAt}`].filter(Boolean).join('\n');
+    }
+    if (usedBy && (!slice.usedBy || (at && !slice.usedByComponent))) {
+      const used = usedBy.map(u => `${u.screen} (${u.how}: ${u.path.join(' › ')})`).join('; ') || '⚠ no screen reaches it';
+      const kept = (slice.description || '').split('\n').filter(l => !/^(Used by|Seen on): /.test(l));
+      slice.description = [...kept, `Used by: ${used}`, slice.seenOnLine].filter(Boolean).join('\n');
+      slice.usedBy = used;
+      if (at) slice.usedByComponent = true;
+    }
+    // Seen on: the screens the browser pass saw its component on, or the warning when the code reaches
+    // a screen but no pass saw it there
+    if (at && s.seenOn && !slice.seenOnLine) {
+      slice.seenOnLine = `Seen on: ${s.seenOn.length ? s.seenOn.map(x => `${x} ✓`).join(', ') : '⚠ drawn by code but never seen'}`;
+      slice.description = [slice.description, slice.seenOnLine].filter(Boolean).join('\n');
     }
     const add = t => { if (!slice.events.includes(t)) slice.events.push(t); };
     if (isView) (s.given || []).forEach(e => add(e.type));
@@ -93,7 +171,8 @@ export function specFromScenarios(scenarios, { name, description, eventTypes, co
     } else if (then.rejected) thenSpec = { kind: 'reject', reason: then.rejected };
     else if (then.nothing) title += ' · records nothing';   // accepted, no change: eventPAD has no Then for it
     else if (isView) thenSpec = { kind: 'readModel', name: then.view,
-      values: then.value && typeof then.value === 'object' && !Array.isArray(then.value) ? values(then.value) : { shows: text(then.value) } };
+      values: { ...(then.value && typeof then.value === 'object' && !Array.isArray(then.value) ? values(then.value) : { shows: text(then.value) }),
+        ...(then.component ? { [then.component]: text(then.shows) || '(nothing)' } : {}) } };
     slice.scenarios.push({ title, type: isView ? 'SV' : 'SC', given, when: isView ? null : { command: sliceName, values: values(s.whenData) }, then: thenSpec,
       ...(s.spec?.file ? { source: { file: s.spec.file, line: s.spec.line || null } } : {}),
       ...(s.pending ? { pending: s.passing ? 'passing' : 'not passing yet' } : {}) });
@@ -127,6 +206,8 @@ export function specFromScenarios(scenarios, { name, description, eventTypes, co
 // What kind of file this is: an eventPAD model (events), a test export (one file's
 // scenarios, or a pipeline's combined file) or a plan (docs/slices.json)
 export function kindOf(json) {
+  // An Event Book plan file (plan.schema.json): chapters of steps with their scenarios, written by hand or by an LLM
+  if (json && !Array.isArray(json) && typeof json.format === 'string' && json.format.startsWith('eventbook-plan/')) return 'eventbook-plan';
   if (json && !Array.isArray(json) && Array.isArray(json.files)) return 'export';
   if (json && !Array.isArray(json) && Array.isArray(json.slices) && json.slices.some(s => s?.kind)) return 'plan';
   if (Array.isArray(json)) {

@@ -2,7 +2,7 @@
 // LIBRARY - Folding the bookshelves' sections, to hop between them
 // Published, Drafts, Not on this device and the
 // Reference shelf each fold under their header; per device. All open at first,
-// except a long list of books not on this device.
+// except a long list of books not on this device. The Retired shelf starts folded.
 // ===========================================
 
 const KEY = 'eventpad_shelf_folds';
@@ -25,7 +25,7 @@ function folds() {
 
 export function isFolded(section, count) {
   const f = folds();
-  return section in f ? !!f[section] : section === 'missing' && count > LONG;
+  return section in f ? !!f[section] : (section === 'missing' && count > LONG) || section === 'retired';
 }
 
 export function setFolded(section, folded) {
@@ -35,19 +35,20 @@ export function setFolded(section, folded) {
 }
 
 // The header: tap to fold; an empty section is a greyed header only
-export function sectionHead(section, title, countText, count) {
-  const folded = count > 0 && isFolded(section, count);
-  return `<button class="lb-section-head${count ? '' : ' empty'}" id="lbSec-${section}" data-library-action="fold" data-section="${section}" data-count="${count}"
+// isIt(section, count): is it folded (the device's choice, unless the caller says)
+export function sectionHead(section, title, countText, count, isIt = isFolded, attrs = '') {
+  const folded = count > 0 && isIt(section, count);
+  return `<button class="lb-section-head${count ? '' : ' empty'}" ${attrs} id="lbSec-${section}" data-library-action="fold" data-section="${section}" data-count="${count}"
     aria-expanded="${count > 0 && !folded}" ${count ? '' : 'disabled'}>
     <span class="lb-chev" aria-hidden="true">${folded ? '▸' : '▾'}</span><span class="lb-section">${title}</span><span class="lb-count">${countText}</span></button>`;
 }
 
 // A slim row for a folded section (its book edges and what's inside) that opens it
 const edges = n => Array.from({ length: Math.min(n, 6) }, (_, i) => `<i style="--h:${54 + ((i * 37) % 28)}%; --hue:${(i * 47) % 360}"></i>`).join('');
-export function sectionBody(section, count, html, noun = 'book') {
+export function sectionBody(section, count, html, noun = 'book', isIt = isFolded, attrs = '') {
   if (!count) return '';
-  const folded = isFolded(section, count);
-  return `<button class="lb-folded-row" data-library-action="fold" data-section="${section}" data-folded-row="${section}" ${folded ? '' : 'hidden'}>
+  const folded = isIt(section, count);
+  return `<button class="lb-folded-row" ${attrs} data-library-action="fold" data-section="${section}" data-folded-row="${section}" ${folded ? '' : 'hidden'}>
       <span class="lb-edges" aria-hidden="true">${edges(count)}</span>
       <span class="lb-folded-text">${count} ${count === 1 ? noun : noun + 's'} · tap to open</span></button>
     <div class="lb-section-body" data-section-body="${section}" ${folded ? 'hidden' : ''}>${html}</div>`;

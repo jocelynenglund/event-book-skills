@@ -6,12 +6,14 @@
 
 import { getEventStream, createModel, openModel, listModels, getCurrentModelId, setModelStartIn } from '../../core/eventStore.js';
 import { projectState } from '../../core/projections.js';
-import { snapshotEvents } from '../snapshot/command.js';
+import { snapshotOf } from '../snapshot/command.js';
+import { shareLinkSnapshot } from './read.js';
 import { showSheet, hideAllSheets } from '../../ui/sheets.js';
 import { showToast } from '../../ui/toast.js';
 import { escapeHtml } from '../board/view.js';
 import { renderModelImage, ensureFonts } from '../shareImage/render.js';
-import { shareSourceEvents, shareSourceId } from '../shareImage/sheet.js';
+import { modelDetailShareShot } from '../shareImage/modelDetailShareShot.read.js';
+import { shareSourceEvents, shareSourceId, shareScopeNow } from '../shareImage/sheet.js';
 
 // The eventpad module is live on the shared host (event-store-api PR #201);
 // flip to false to hide Copy link if it ever has to come down
@@ -74,12 +76,13 @@ export class ShareRefusedError extends Error {}
 export async function createShareLink(given = null, modelId = null) {
   const events = given || shareSourceEvents() || getEventStream();
   const from = modelId || shareSourceId() || getCurrentModelId();
-  const state = projectState(events);
+  // The sheet's scope (the chapters picked); a shelf's book from the library goes whole
+  const book = shareLinkSnapshot(projectState(events), given ? null : shareScopeNow());
   const res = await fetch(`${API_BASE}/shares`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // Whoever opens the link needs the model, not the history of building it
-    body: JSON.stringify({ name: shareText(state.modelName), description: shareText(state.modelDescription), events: await packEvents(snapshotEvents(events)) })
+    body: JSON.stringify({ name: shareText(book.name), description: shareText(book.description), events: await packEvents(snapshotOf(book.state, events.length)) })
   });
   if (res.status === 413) throw new ShareTooBigError('Too big for a share link');
   // Refused for a reason the server gives: say it
@@ -197,7 +200,7 @@ export async function openSharedLinkFromUrl() {
     <button class="sheet-btn secondary" data-shared-action="dismiss">Not now</button>`;
   showSheet('boardSheet');
   await ensureFonts();
-  renderModelImage({ events: shared.events, showProps: false, scale: 1.5 }).toBlob(blob => {
+  renderModelImage({ shot: modelDetailShareShot(projectState(shared.events), { options: { showProps: false }, events: shared.events }), scale: 1.5 }).toBlob(blob => {
     const img = document.getElementById('sharedPreview');
     if (img && blob) { img.src = URL.createObjectURL(blob); img.previousElementSibling?.remove(); }
   });

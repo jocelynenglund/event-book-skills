@@ -9,14 +9,16 @@
 
 import { getEventStream } from '../../core/eventStore.js';
 import { latestUsage, sliceUsage, chapterUsage, heatOf, usageInsight, eventUsage, viewFedBy } from './rules.js';
+import { eventsUsed } from './read.js';
 import { escapeHtml } from '../board/view.js';
 import { openBoardSheet } from '../board/sheets/shared.js';
 import { hideAllSheets } from '../../ui/sheets.js';
 
 const cache = new WeakMap(); // projected state → its usage { usage, n, max } (one projection per render)
-function usageOf(state) {
+// events: the book's (the open one's by default; a shared book's from the library)
+function usageOf(state, events = null) {
   if (!cache.has(state)) {
-    const usage = latestUsage(getEventStream());
+    const usage = latestUsage(events || getEventStream());
     const n = sliceUsage(state, usage);
     const chapters = chapterUsage(state, n);
     cache.set(state, { usage, n, max: Math.max(0, ...Object.values(n)), chapters, chapterMax: Math.max(0, ...Object.values(chapters)) });
@@ -26,29 +28,56 @@ function usageOf(state) {
 
 const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 
-// The slice page: how much it was used, and where it stands among the slices ('' without usage)
-export function sliceUsageLine(slice, state) {
+// The slice page: how much it was used, and where it stands among the slices (null without usage)
+export function sliceUsageOf(slice, state) {
   const { usage, n } = usageOf(state);
+  const days = usage?.days || 30;
   if (usage && slice.type === 'SV') {
     const fed = viewFedBy(state, usage, slice.id);
-    return fed.length ? `<p class="sp-usage fed">📊 A view counts nothing itself. Fed by ${fed.map(f => f.sliceId
-      ? `<button class="sp-fed" data-slice-page="open" data-slice="${f.sliceId}">${escapeHtml(f.title)}</button> (${f.n})` : `${escapeHtml(f.title)} (${f.n})`).join(', ')} in the last ${usage.days || 30} days</p>` : '';
+    return fed.length ? { kind: 'fed', days, fed: fed.map(f => ({ sliceId: f.sliceId || null, title: f.title, n: f.n })) } : null;
+  }
+  if (!usage || !(slice.id in n)) return null;
+  const count = n[slice.id];
+  if (!count) return { kind: 'unused', days };
+  const ranked = Object.values(n).filter(x => x > 0).sort((a, b) => b - a);
+  return { kind: 'count', days, count, rank: ranked.indexOf(count) + 1, of: Object.keys(n).length };
+}
+
+// ... drawn from that alone ('' for none)
+export function usageLineHtml(u) {
+  if (!u) return '';
+  if (u.kind === 'fed') return `<p class="sp-usage fed">📊 A view counts nothing itself. Fed by ${u.fed.map(f => f.sliceId
+    ? `<button class="sp-fed" data-slice-page="open" data-slice="${f.sliceId}">${escapeHtml(f.title)}</button> (${f.n})` : `${escapeHtml(f.title)} (${f.n})`).join(', ')} in the last ${u.days} days</p>`;
+  if (u.kind === 'unused') return `<p class="sp-usage unused">📊 Unused in the last ${u.days} days</p>`;
+  return `<p class="sp-usage">📊 <b>${u.count}</b> in the last ${u.days} days · ${u.rank === 1 ? 'the busiest' : `${ordinal(u.rank)} busiest`} of ${u.of} slices</p>`;
+}
+
+// The same as text, for the outline picture (share as image, Usage on): '' without usage
+export function sliceUsageText(slice, state, events = null) {
+  const { usage, n } = usageOf(state, events);
+  if (usage && slice.type === 'SV') {
+    const fed = viewFedBy(state, usage, slice.id);
+    return fed.length ? `📊 A view counts nothing itself. Fed by ${fed.map(f => `${f.title} (${f.n})`).join(', ')} in the last ${usage.days || 30} days` : '';
   }
   if (!usage || !(slice.id in n)) return '';
   const count = n[slice.id], days = usage.days || 30;
-  if (!count) return `<p class="sp-usage unused">📊 Unused in the last ${days} days</p>`;
+  if (!count) return `📊 Unused in the last ${days} days`;
   const ranked = Object.values(n).filter(x => x > 0).sort((a, b) => b - a);
   const rank = ranked.indexOf(count) + 1;
-  return `<p class="sp-usage">📊 <b>${count}</b> in the last ${days} days · ${rank === 1 ? 'the busiest' : `${ordinal(rank)} busiest`} of ${Object.keys(n).length} slices</p>`;
+  return `📊 ${count} in the last ${days} days · ${rank === 1 ? 'the busiest' : `${ordinal(rank)} busiest`} of ${Object.keys(n).length} slices`;
 }
 
+// Whether a book has usage to show (the share sheet offers Usage then)
+export const hasUsage = (state, events = null) => !!usageOf(state, events).usage;
+
 // An event sticky on the slice page: how many times it happened ('' without usage)
-export function eventUsageChip(el, state) {
+export function eventUsageOf(el, state) {
   const { usage } = usageOf(state);
-  if (!usage || el.type !== 'event') return '';
-  const count = eventUsage(usage, el.name);
-  return `<span class="sp-used ${count ? '' : 'unused'}">${count ? `${count}× in ${usage.days || 30}d` : `none in ${usage.days || 30}d`}</span>`;
+  if (!usage || el.type !== 'event') return null;
+  return { count: eventUsage(usage, el.name), days: usage.days || 30 };
 }
+
+export const usageChipHtml = u => u ? `<span class="sp-used ${u.count ? '' : 'unused'}">${u.count ? `${u.count}× in ${u.days}d` : `none in ${u.days}d`}</span>` : '';
 
 // A view has no count of its own: what feeds it ("fed by Add Wish (48), Create Party (130)")
 const fedText = fed => fed.map(f => `${f.title} (${f.n})`).join(', ');
@@ -90,6 +119,20 @@ export function initUsageStats() {
 }
 
 // The details sheet's panel ('' for a book that isn't a build book)
+// Events used: the window's plain totals per event type, folded away under Built · Used, each with the
+// changes that record it (from Events Used alone: usage/read.js)
+export function eventsUsedList(list, days = 30) {
+  if (!list.length) return '';
+  return `
+      <details class="us-events" data-component="Events used">
+        <summary>Events · ${list.length} in ${days} days</summary>
+        <ol class="us-event-list">${list.map(e => `
+          <li><span class="us-event-name">${escapeHtml(e.name)}</span><b>${e.count}</b>
+            <small>${e.recordedBy.length ? escapeHtml(e.recordedBy.join(', ')) : 'no slice records it'}</small></li>`).join('')}
+        </ol>
+      </details>`;
+}
+
 export function usageSection(events) {
   const i = usageInsight(events);
   if (!i) return '';
@@ -101,6 +144,7 @@ export function usageSection(events) {
       ${u ? `
       <p class="us-window">Used ${escapeHtml(date(u.since))} – ${escapeHtml(date(u.at))} · ${u.days} days</p>
       <p class="us-total"><b>${u.total}</b> events</p>
+      ${eventsUsedList(eventsUsed(events), u.days)}
       ${i.busiest.length ? `<div class="us-sub">Top ${i.busiest.length}</div><ol class="us-busy">${i.busiest.map(b => `<li><span>${escapeHtml(b.title)}</span><b>${b.n}</b></li>`).join('')}</ol>` : ''}
       ${i.unused.length ? `<div class="us-sub">Unused in ${u.days} days</div><ul class="us-unused">${i.unused.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul>` : ''}
       ${u.unmatched ? `<p class="us-unmatched">${u.unmatched} usage ${u.unmatched === 1 ? 'key matches' : 'keys match'} no event in the model.</p>` : ''}`

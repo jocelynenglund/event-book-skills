@@ -12,7 +12,7 @@ import { readModelEvents, replaceModelEvents, createModel, listModels, setTypeGu
 import { commentEventTypes } from '../../core/constants.js';
 import { canAddScenariosShared } from '../shared/client.js';
 
-export const APP_URL = 'https://eventpad.itsybit.se/';
+export const APP_URL = 'https://eventbook.itsybit.se/';
 export const reviewUrl = token => `${APP_URL}?review=${encodeURIComponent(token)}`;
 
 const TOKENS_KEY = 'eventpad_review_tokens';   // owner: reviewId → token (the server shows it only once)
@@ -70,6 +70,8 @@ export function reviewAllows(r, type) {
   if (!r || r.ended) return false;
   if (commentEventTypes.has(type)) return true;
   if (type === 'ScenarioTested') return r.purpose === 'test';
+  // Votes on chapters come with a review of the plan (the server checks each is the reviewer's own)
+  if (type === 'VoteCast' || type === 'VoteWithdrawn') return r.purpose !== 'test';
   return !!r.canAddScenarios && scenarioTypes.has(type);
 }
 // A review link's book, or a book shared with this account, that lets scenarios be added
@@ -85,11 +87,20 @@ export function syncReview(id) {
     const local = readModelEvents(id);
     const synced = new Set(r.synced);
     const fresh = local.filter(e => !synced.has(e.id) && reviewAllows(r, e.type));
-    let res;
+    const push = list => (list.length
+      ? api('POST', `${tokenPath(r.token)}/events`, { reviewerId: r.reviewerId, after: r.position, events: list })
+      : api('GET', `${tokenPath(r.token)}/events?after=${r.position}`));
+    const isVote = e => e.type === 'VoteCast' || e.type === 'VoteWithdrawn';
+    let res, sent = fresh;
     try {
-      res = fresh.length
-        ? await api('POST', `${tokenPath(r.token)}/events`, { reviewerId: r.reviewerId, after: r.position, events: fresh })
-        : await api('GET', `${tokenPath(r.token)}/events?after=${r.position}`);
+      try {
+        res = await push(sent);
+      } catch (e) {
+        // A server that doesn't take votes yet refuses the whole batch: the comments still go, the votes wait for it
+        if (e.status !== 403 || !fresh.some(isVote)) throw e;
+        sent = fresh.filter(x => !isVote(x));
+        res = await push(sent);
+      }
     } catch (e) {
       if (e.status === 410) setReview(id, { ...r, ended: true });
       throw e;
@@ -101,8 +112,8 @@ export function syncReview(id) {
       const merged = [...local, ...incoming].sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || ''))).filter(e => !undone.has(e.batch));
       replaceModelEvents(id, merged);
     }
-    setReview(id, { ...reviewOf(id), position: res.position, synced: [...new Set([...r.synced, ...fresh.map(e => e.id), ...incoming.map(e => e.id)])] });
-    return { up: fresh.length, down: incoming.length };
+    setReview(id, { ...reviewOf(id), position: res.position, synced: [...new Set([...r.synced, ...sent.map(e => e.id), ...incoming.map(e => e.id)])] });
+    return { up: sent.length, down: incoming.length, waiting: fresh.length - sent.length };
   })().finally(() => running.delete(id));
   running.set(id, job);
   return job;

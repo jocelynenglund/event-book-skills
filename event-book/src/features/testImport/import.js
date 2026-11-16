@@ -19,6 +19,7 @@ import { startCompare } from '../compare/view.js';
 import { projectState, getOrderedSlices } from '../../core/projections.js';
 import { suggestCompareShelf } from '../compare/diff.js';
 import { offerMatch } from './matchSheet.js';
+import { checkPlan, buildPlan } from '../planFile/build.js';
 
 const readJson = async file => {
   try { return { name: file.name, json: JSON.parse(await file.text()), size: file.size }; } catch (e) { return { name: file.name, json: null, size: file.size }; }
@@ -87,7 +88,26 @@ export async function importFiles(fileList) {
   const models = kinds.filter(f => f.kind === 'events');
   const tests = kinds.filter(f => f.kind === 'export' || f.kind === 'scenarios');
   const plan = kinds.find(f => f.kind === 'plan');
+  const planFiles = kinds.filter(f => f.kind === 'eventbook-plan');
   const unknown = kinds.filter(f => f.kind === 'unknown');
+
+  // Event Book plan files: each its own new book; a file with something wrong is refused in one line, and adds nothing
+  for (const f of planFiles) {
+    const why = checkPlan(f.json);
+    if (why) { showToast(`${f.name}: ${why}`); return; }
+  }
+  if (planFiles.length) {
+    try {
+      const built = planFiles.map(f => buildPlan(f.json));
+      render();
+      showOutline();
+      const sum = built.reduce((a, b) => ({ chapters: a.chapters + b.chapters, slices: a.slices + b.slices, scenarios: a.scenarios + b.scenarios }), { chapters: 0, slices: 0, scenarios: 0 });
+      showToast(`Imported the plan: ${n(sum.chapters, 'chapter', 'chapters')}, ${n(sum.slices, 'slice', 'slices')}, ${n(sum.scenarios, 'scenario', 'scenarios')}`);
+    } catch (err) {
+      showToast("Couldn't import that plan");
+    }
+    if (kinds.length === planFiles.length) return;
+  }
 
   try {
     // eventPAD models: each on its own shelf (one that's a book you already have: ask)

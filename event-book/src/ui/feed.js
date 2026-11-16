@@ -11,9 +11,14 @@ import { renderEventLog } from '../features/eventLog/view.js';
 import { renderBoard } from '../features/board/view.js';
 import { renderDetails } from '../features/details/view.js';
 import { renderOutline } from '../features/outline/view.js';
+import { renderRead } from '../features/literature/view.js';
+import { isLiterature, bookScreens } from '../features/literature/rules.js';
 import { renderLibrary } from '../features/library/view.js';
 import { renderSlicePage } from '../features/slicePage/view.js';
+import { renderChapterPage } from '../features/literature/votesView.js';
 import { renderCompare, setCompare } from '../features/compare/view.js';
+import { renderPreface } from '../features/preface/view.js';
+import { prefaceOf, prefaceSeen } from '../features/preface/rules.js';
 
 // 'board' (swimlane timeline, the editor), 'details' (the overview: an outline of
 // chapters and slices, or elements with their properties) or 'library'
@@ -21,9 +26,12 @@ let view = 'board';
 let overviewTab = 'outline';
 // 'slice': one slice on its own page; ‹ Back returns to where you came from
 let slicePageId = null;
+let chapterPageId = null;   // a literature chapter on its own page (votesView.js), in the slice page's place
 let viewBeforeSlice = 'board';
 
 export function getView() { return view; }
+// Where a slice page was opened from (its ‹ goes back there): 'board', 'details', …
+export function sliceOpenedFrom() { return viewBeforeSlice; }
 
 // The library of models (shelves of books), and back to the open model's board
 export function showLibrary() {
@@ -56,9 +64,22 @@ export function showOutline() {
   render();
 }
 
-// Open the model where you like to start
+// The book's preface: its description as a page before the board (the first time it is opened
+// on this device; after that from ☰ / ⋮ → Preface)
+export function showPreface() {
+  view = 'preface';
+  window.scrollTo(0, 0);
+  render();
+}
+
+// Open the model where you like to start: its preface first, the first time on this device
 export function showStart() {
-  getStartIn() === 'outline' ? showOutline() : showBoard();
+  if (prefaceOf(projectState(), prefaceSeen(getCurrentModelId())).shown === 'first time') return showPreface();
+  startReading();
+}
+export function startReading() {
+  // A literature book opens on Read, which takes the board's place
+  getStartIn() === 'outline' && !isLiterature(projectState()) ? showOutline() : showBoard();
 }
 
 export function setOverviewTab(tab) {
@@ -79,6 +100,17 @@ export function showSlicePage(sliceId) {
   if (view !== 'slice') viewBeforeSlice = view === 'library' ? 'board' : view;
   view = 'slice';
   slicePageId = sliceId;
+  chapterPageId = null;
+  window.scrollTo(0, 0);
+  render();
+}
+
+// A literature chapter's page: its story, requirement and votes (‹ Back as from a slice page)
+export function showChapterPage(chapterId) {
+  if (view !== 'slice') viewBeforeSlice = view === 'library' ? 'board' : view;
+  view = 'slice';
+  slicePageId = null;
+  chapterPageId = chapterId;
   window.scrollTo(0, 0);
   render();
 }
@@ -88,6 +120,7 @@ export function leaveSlicePage() {
   window.scrollTo(0, 0);
   render();
   if (view === 'board' && slicePageId) showSliceOnBoard(slicePageId);
+  chapterPageId = null;
 }
 
 // Leave the overview and bring a slice into view on the board
@@ -158,14 +191,17 @@ export function render() {
   document.getElementById('eventCount').textContent = eventCount;
   document.getElementById('undoBtn').disabled = eventCount === 0;
   
+  // Literature has no board: Read stands where it does (the same view, Read / Outline in the header)
+  const lit = isLiterature(state);
   const isBoard = view === 'board';
   const isDetails = view === 'details';
   const isLibrary = view === 'library';
   const isSlice = view === 'slice';
   const isCompare = view === 'compare';
+  const isPreface = view === 'preface';
   document.body.classList.add('board-mode');
   // In a book (board, outline, a slice): it's the one most recently opened
-  if (isBoard || isDetails || isSlice) markOpened(getCurrentModelId());
+  if (isBoard || isDetails || isSlice || isPreface) markOpened(getCurrentModelId());
   document.body.classList.toggle('slice-mode', isSlice);
   document.body.classList.toggle('library-mode', isLibrary);
   document.getElementById('libraryView').style.display = isLibrary ? '' : 'none';
@@ -174,9 +210,12 @@ export function render() {
   const hasBack = isSlice || isCompare;
   document.querySelector('.header h1').hidden = !hasBack;
   document.body.classList.toggle('has-back', hasBack);
-  document.getElementById('libraryBtn').textContent = isSlice ? `‹ ${viewBeforeSlice === 'details' ? (overviewTab === 'outline' ? 'Outline' : 'Details') : 'Board'}` : '‹ Bookshelves';
+  document.getElementById('libraryBtn').textContent = isSlice ? `‹ ${viewBeforeSlice === 'details' ? (overviewTab === 'outline' || lit ? 'Outline' : 'Details') : lit ? 'Read' : 'Board'}` : '‹ Bookshelves';
   document.getElementById('sliceView').style.display = isSlice ? '' : 'none';
   document.getElementById('compareView').style.display = isCompare ? '' : 'none';
+  document.getElementById('prefaceView').style.display = isPreface ? '' : 'none';
+  document.getElementById('compareItem').hidden = lit;   // no build to compare a story with
+  document.getElementById('prefaceItem').hidden = isLibrary || !state.modelDescription;
   // The bookshelves: the Event Book brand in the header (icon and word); a book: its name
   const title = document.getElementById('modelTitle');
   if (isLibrary) title.innerHTML = '<img class="hd-brand-icon" src="icons/mark.svg" alt="" width="36" height="36"><span class="hd-brand-word">Event Book</span>';
@@ -184,24 +223,32 @@ export function render() {
   title.title = isLibrary ? '' : state.modelName || 'Untitled model';
   title.classList.toggle('brand', isLibrary);
   document.getElementById('modelTitle').classList.toggle('named', isLibrary || !!state.modelName);
-  document.getElementById('boardView').style.display = isBoard ? '' : 'none';
+  document.getElementById('boardView').style.display = isBoard && !lit ? '' : 'none';
+  document.getElementById('readView').style.display = isBoard && lit ? '' : 'none';
   document.getElementById('overviewView').style.display = isDetails ? '' : 'none';
-  document.getElementById('outlineView').style.display = overviewTab === 'outline' ? '' : 'none';
-  document.getElementById('detailsView').style.display = overviewTab === 'details' ? '' : 'none';
-  document.querySelectorAll('.ov-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === overviewTab));
-  document.getElementById('fab').style.display = isDetails || isLibrary || isSlice || isCompare ? 'none' : '';
+  // Literature has no Details (the stickies' fields): the outline is all there is
+  const tab = lit ? 'outline' : overviewTab;
+  document.querySelector('.ov-tabs').style.display = lit ? 'none' : '';
+  document.getElementById('outlineView').style.display = tab === 'outline' ? '' : 'none';
+  document.getElementById('detailsView').style.display = tab === 'details' ? '' : 'none';
+  document.querySelectorAll('.ov-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('fab').style.display = isDetails || lit || isLibrary || isSlice || isCompare || isPreface ? 'none' : '';
   if (!isBoard) document.getElementById('fabMenu')?.classList.remove('open');
-  // Board | Outline in the header: the one you're on is lit (Details counts as the outline side)
+  // Board | Outline in the header: the one you're on is lit (Details counts as the outline side).
+  // A literature book says Read | Outline.
+  const [firstView] = bookScreens(state).views;
   document.querySelectorAll('[data-view-switch]').forEach(b => {
+    if (b.dataset.viewSwitch === 'board') b.textContent = firstView;
     const on = b.dataset.viewSwitch === 'board' ? isBoard : isDetails;
     b.classList.toggle('on', on);
     b.setAttribute('aria-pressed', String(on));
   });
-  if (isBoard) renderBoard();
-  if (isDetails) overviewTab === 'outline' ? renderOutline() : renderDetails();
+  if (isBoard) lit ? renderRead() : renderBoard();
+  if (isDetails) tab === 'outline' ? renderOutline() : renderDetails();
   if (isLibrary) renderLibrary();
-  if (isSlice) renderSlicePage(slicePageId);
+  if (isSlice) chapterPageId ? renderChapterPage(chapterPageId) : renderSlicePage(slicePageId);
   if (isCompare) renderCompare();
+  if (isPreface) renderPreface();
 
   // Update event log (from eventLog feature)
   document.getElementById('eventLogList').innerHTML = renderEventLog();

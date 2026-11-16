@@ -2,18 +2,22 @@
 // SHARE IMAGE - Sheet (preview, options, share)
 // ===========================================
 
-import { projectState, sliceTitle } from '../../core/projections.js';
-import { readModelEvents } from '../../core/eventStore.js';
+import { projectState } from '../../core/projections.js';
+import { readModelEvents, getEventStream } from '../../core/eventStore.js';
 import { showSheet } from '../../ui/sheets.js';
 import { showToast } from '../../ui/toast.js';
 import { renderModelImage, renderSlides, ensureFonts } from './render.js';
 import { renderOutlineImage } from './outlineImage.js';
-import { isChapterFolded } from '../board/view.js';
+import { modelDetailShareShot } from './modelDetailShareShot.read.js';
+import { shareScopeChoices } from './shareScopeChoices.read.js';
+import { shareFileName } from './shareFileName.read.js';
+import { shareSheetControls } from './shareSheetControls.read.js';
+import { shareSheetStart } from './shareSheetStart.read.js';
+import { scopeButtons, shareScopeButton, shareFormatButton, shareOptionChip } from './shareImage.parts.js';
 
 const OPTS_KEY = 'eventpad_share_opts';
-let opts = { theme: 'light', showProps: true, foldChapters: true, showDescription: true, showScenarios: false, showSliceNotes: false, slides: false, outline: false };
+let opts = { theme: 'light', showProps: true, foldChapters: true, showDescription: true, showScenarios: false, showValues: false, showSliceNotes: false, showUsage: false, slides: false, outline: false };
 // Picture (the board), Slides 4:5, or the Outline (a table of contents)
-const formatOf = () => opts.outline ? 'outline' : opts.slides ? 'slides' : 'board';
 try { opts = { ...opts, ...JSON.parse(localStorage.getItem(OPTS_KEY) || '{}') }; } catch (e) { /* storage blocked */ }
 
 // What's shared: the whole model (null) or one chapter. Picked fresh each time.
@@ -23,72 +27,51 @@ let sliceScope = null;
 // Which model: the open one (null), or a shelf's from the library (its id)
 let sourceId = null;
 const sourceEvents = () => (sourceId ? readModelEvents(sourceId) : null);
-const sourceState = () => (sourceId ? projectState(readModelEvents(sourceId)) : projectState());
+const sourceState = () => projectState(sourceId ? readModelEvents(sourceId) : undefined);
 
 // For the share link: the events of the model being shared (null = the open one)
 export function shareSourceEvents() { return sourceEvents(); }
 export function shareSourceId() { return sourceId; }
+// The scope picked now (null: the whole model; 'slice:<id>'; chapter ids joined by commas): what a link carries too
+export function shareScopeNow() { return scope; }
 let blobs = [];        // one picture, or one per slide
 let previewUrl = null;
 
-const escapeHtml = text => String(text).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-
 function fileName(index = null) {
-  const state = sourceState();
-  const slice = scope?.startsWith('slice:') && state.slices[scope.slice(6)];
-  const chapterNames = (scope && !scope.startsWith('slice:') ? scope.split(',') : []).map(id => state.chapters[id]?.name).filter(Boolean);
-  const name = [state.modelName || 'event-model', slice ? sliceTitle(slice, state) : chapterNames.join(' ')].filter(Boolean).join(' ');
-  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const { base } = shareFileName(sourceState(), scope);
   return base + (index === null ? '' : `-${index + 1}`) + '.png';
 }
 
 const toBlob = canvas => new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
 
-// Whole model or one chapter, offered only when there are chapters with slices
-// What to share: this slice (from its menu), the whole model, or a chapter. A picker with a
-// search, since a big model's chapters run past what a phone's own list scrolls through well.
-let scopeOptions = [];
+// What to share: this slice (from its menu), the whole model (a small book only), or chapters. A picker
+// with a search, since a big model's chapters run past what a phone's own list scrolls through well.
+let choice = null; // Share Scope Choices
+const escapeAttr = text => String(text).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 function renderScope(state) {
-  const chapters = state.chapterOrder.map(id => state.chapters[id])
-    .filter(c => c && Object.values(state.slices).some(s => s.chapterId === c.id));
-  const slice = sliceScope && state.slices[sliceScope];
-  scopeOptions = [...(slice ? [{ id: 'slice:' + slice.id, name: 'This slice: ' + sliceTitle(slice, state) }] : []), { id: '', name: 'Whole model' }, ...chapters];
-  document.getElementById('shareScope').innerHTML = scopeOptions.map(c =>
-    `<option value="${c.id}" ${(scope || '') === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
-  const btn = document.getElementById('shareScopeBtn');
-  btn.hidden = scopeOptions.length < 2;
-  const picked = chosenChapters().map(id => scopeOptions.find(o => o.id === id)?.name).filter(Boolean);
-  document.getElementById('shareScopeLabel').textContent = picked.length
-    ? picked[0] + (picked.length > 1 ? ` + ${picked.length - 1} more` : '')
-    : (scopeOptions.find(o => o.id === (scope || '')) || scopeOptions[0])?.name || '';
+  choice = shareScopeChoices(state, scope, sliceScope);
+  scope = choice.scope;
+  document.getElementById('shareScope').innerHTML = choice.options.map(c =>
+    `<option value="${escapeAttr(c.id)}" ${(scope || '') === c.id ? 'selected' : ''}>${escapeAttr(c.name)}</option>`).join('');
+  document.getElementById('shareScopeMount').innerHTML = shareScopeButton({ ...choice, open: !document.getElementById('shareScopePanel').hidden });
   renderScopeList();
 }
 
 function renderScopeList() {
-  const query = (document.getElementById('shareScopeSearch')?.value || '').trim().toLowerCase();
-  const words = query.split(/\s+/).filter(Boolean);
-  // The slice and the whole model always stay; chapters filter by every word typed
-  const shown = scopeOptions.filter(o => !o.id || o.id.startsWith('slice:') || words.every(w => o.name.toLowerCase().includes(w)));
-  const chapters = chosenChapters();
-  // Chapters tick on and off (share several); the whole model and the slice are one choice each
-  const isChapter = o => o.id && !o.id.startsWith('slice:');
-  document.getElementById('shareScopeList').innerHTML = shown.map(o => {
-    const on = isChapter(o) ? chapters.includes(o.id) : (scope || '') === o.id;
-    return `<button type="button" class="share-scope-option ${on ? 'active' : ''}" role="option" aria-selected="${on}" data-scope="${escapeHtml(o.id)}">${isChapter(o) ? `<span class="share-scope-tick">${on ? '✓' : ''}</span>` : ''}${escapeHtml(o.name)}</button>`;
-  }).join('')
-    + (words.length && shown.every(o => !o.id || o.id.startsWith('slice:')) ? `<div class="share-scope-none">No chapter matches</div>` : '');
+  document.getElementById('shareScopeList').innerHTML = scopeButtons(choice.scopes,
+    { slice: choice.slice, query: document.getElementById('shareScopeSearch')?.value || '' });
 }
 
 function openScopePanel(open) {
   const panel = document.getElementById('shareScopePanel');
   panel.hidden = !open;
-  document.getElementById('shareScopeBtn').setAttribute('aria-expanded', String(open));
+  document.getElementById('shareScopeBtn')?.setAttribute('aria-expanded', String(open));
   if (open) {
     const search = document.getElementById('shareScopeSearch');
     search.value = '';
     renderScopeList();
     // Only a long list needs the search box
-    search.hidden = scopeOptions.length <= 8;
+    search.hidden = !choice.showSearch;
     if (!search.hidden) search.focus();
     // On a short phone the list opens below the fold of the scrolling sheet: bring it up
     panel.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
@@ -121,36 +104,19 @@ async function refreshPreview() {
   preview.dataset.busy = '1';
   await ensureFonts();
   const state = sourceState();
-  if (scope && !scope.startsWith('slice:')) scope = chosenChapters().filter(id => state.chapters[id]).join(',') || null;
-  if (scope?.startsWith('slice:') && !state.slices[scope.slice(6)]) scope = null;
-  const only = scope?.startsWith('slice:') ? [scope.slice(6)] : null;
-  const chapters = chosenChapters();
-  const chapterId = only ? null : chapters.length > 1 ? chapters : chapters[0] || null;
-  // Folded / All open only matters for the whole model (a picture or the outline), with a chapter folded
-  document.getElementById('shareFoldOpt').style.display =
-    !scope && !opts.slides && state.chapterOrder.some(id => isChapterFolded(id)) ? '' : 'none';
-  // The outline lists slices; their stickies' fields are the board's
-  document.getElementById('sharePropsOpt').style.display = opts.outline ? 'none' : '';
-  document.getElementById('shareDescOpt').style.display = state.modelDescription ? '' : 'none';
-  document.getElementById('shareNotesOpt').style.display = Object.values(state.slices).some(s => s.description) ? '' : 'none';
-  document.getElementById('shareGwtOpt').style.display = Object.keys(state.scenarios).length ? '' : 'none';
   renderScope(state);
-  document.querySelectorAll('#shareSheet [data-share-set]').forEach(btn => {
-    btn.classList.toggle('active', formatOf() === btn.dataset.value);
-  });
-  document.querySelectorAll('#shareSheet [data-share-opt]').forEach(btn => {
-    const { shareOpt, on } = btn.dataset;
-    btn.classList.toggle('active', String(opts[shareOpt]) === on);
-  });
-  // "Options · 3 on": what's switched on, without opening it
-  const on = [...document.querySelectorAll('#shareMore .share-chip.active')].filter(c => c.style.display !== 'none').length;
-  document.getElementById('shareMoreSummary').textContent = `Options · ${on} on`;
+  // Everything the picture draws, from its one view
+  const shot = modelDetailShareShot(state, { scope, options: opts, events: sourceEvents() || getEventStream() });
+  const controls = shareSheetControls(state, { scope, options: opts, events: sourceEvents() || getEventStream() });
+  document.getElementById('shareFormat').innerHTML = controls.format.map(shareFormatButton).join('');
+  document.getElementById('shareChips').innerHTML = controls.chips.map(shareOptionChip).join('');
+  document.getElementById('shareMoreSummary').textContent = controls.summary;
 
   const canvases = opts.outline
-    ? [renderOutlineImage({ ...opts, chapterId, onlySlices: only, events: sourceEvents() })]
+    ? [renderOutlineImage({ shot, theme: opts.theme })]
     : opts.slides
-      ? renderSlides({ ...opts, chapterId, onlySlices: only, events: sourceEvents() })
-      : [renderModelImage({ ...opts, chapterId, onlySlices: only, events: sourceEvents() })];
+      ? renderSlides({ shot, theme: opts.theme })
+      : [renderModelImage({ shot, theme: opts.theme })];
   const made = await Promise.all(canvases.map(toBlob));
   // A newer refresh (another chip tapped meanwhile) wins
   if (run !== refreshRun) return;
@@ -172,11 +138,11 @@ async function refreshPreview() {
 }
 
 // modelId: share a shelf's model from the library without opening it.
-// sliceId: start with just that slice (from the slice's menu).
-export function openShareSheet(modelId = null, { sliceId = null } = {}) {
+// sliceId: start with just that slice (from the slice's menu). chapterId: start on that chapter (from its menu).
+export function openShareSheet(modelId = null, { sliceId = null, chapterId = null } = {}) {
   sourceId = typeof modelId === 'string' ? modelId : null;
-  const state = sourceState();
-  if (!Object.keys(state.slices).length) {
+  const start = shareSheetStart(sourceState(), typeof sliceId === 'string' ? sliceId : null, typeof chapterId === 'string' ? chapterId : null);
+  if (start.empty) {
     showToast('Add a slice first');
     return;
   }
@@ -184,7 +150,7 @@ export function openShareSheet(modelId = null, { sliceId = null } = {}) {
   const linkBox = document.getElementById('shareLinkResult');
   if (linkBox) { linkBox.hidden = true; linkBox.innerHTML = ''; }
   sliceScope = sliceId;
-  scope = sliceId ? 'slice:' + sliceId : null;
+  scope = start.scope;
   openScopePanel(false);
   showSheet('shareSheet');
   refreshPreview();
@@ -208,7 +174,7 @@ async function share() {
   const files = blobs.map((blob, i) => new File([blob], fileName(blobs.length > 1 ? i : null), { type: 'image/png' }));
   if (navigator.canShare && navigator.canShare({ files })) {
     try {
-      await navigator.share({ files, title: sourceState().modelName || 'Event model' });
+      await navigator.share({ files, title: shareFileName(sourceState(), scope).title });
     } catch (e) {
       if (e.name !== 'AbortError') download();
     }
@@ -221,7 +187,6 @@ async function share() {
 export function initShareImage() {
   document.getElementById('shareBtn').addEventListener('click', openShareSheet);
   document.getElementById('shareScope').addEventListener('change', e => { scope = e.target.value || null; refreshPreview(); });
-  document.getElementById('shareScopeBtn').addEventListener('click', () => openScopePanel(document.getElementById('shareScopePanel').hidden));
   document.getElementById('shareScopeSearch').addEventListener('input', renderScopeList);
   document.getElementById('shareScopeDone').addEventListener('click', () => openScopePanel(false));
   document.getElementById('shareScopeList').addEventListener('click', e => {
@@ -245,6 +210,7 @@ export function initShareImage() {
       try { localStorage.setItem(OPTS_KEY, JSON.stringify(opts)); } catch (err) { /* storage blocked */ }
       refreshPreview();
     }
+    if (e.target.closest('#shareScopeBtn')) openScopePanel(document.getElementById('shareScopePanel').hidden);
     if (e.target.closest('#shareGo')) share();
     if (e.target.closest('#shareDownload')) download();
   });

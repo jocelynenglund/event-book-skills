@@ -23,8 +23,20 @@ export function editionOf(events) {
   return e;
 }
 
-// Frozen: the latest of EditionPublished and NextDraftStarted is EditionPublished
+// A plan retired into an app's edition: { app, edition, retiredAt }, or null. Final: nothing undoes it.
+// (A snapshot of the book carries it in its state.)
+export function retiredOf(events) {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev.type === 'PlanRetired') return { app: ev.data?.app || null, edition: ev.data?.edition ?? null, retiredAt: ev.data?.retiredAt || ev.timestamp || null };
+    if (ev.type === SNAPSHOT && ev.data?.state?.retired) return ev.data.state.retired;
+  }
+  return null;
+}
+
+// Frozen: the latest of EditionPublished and NextDraftStarted is EditionPublished; a retired plan is frozen for good
 export function isFrozen(events) {
+  if (retiredOf(events)) return true;
   for (let i = events.length - 1; i >= 0; i--) {
     const t = events[i].type;
     if (t === PUBLISHED) return true;

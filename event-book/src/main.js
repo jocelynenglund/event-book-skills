@@ -2,11 +2,13 @@
 // EVENTPAD - Main Entry Point
 // ===========================================
 
-import { initStore, loadEventStream, getCurrentModelId, storageUsage } from './core/eventStore.js';
+import { initStore, loadEventStream, getCurrentModelId, storageUsage, onAppend } from './core/eventStore.js';
+import { installSteps } from './features/feedback/steps.js';
+import { leaveOldAddress, tidyMovedMark, moveIn } from './core/moveHouse.js';
 import { formatBytes } from './ui/bytes.js';
 import { initSheets, showSheet, hideAllSheets } from './ui/sheets.js';
 import { initReferences } from './features/references/sheet.js';
-import { render as renderFeed, toggleDetailsView, setOverviewTab, showSliceOnBoard, getView, showLibrary, showBoard, showOutline, showStart, showSlicePage, leaveSlicePage, wasInLibrary, isNewVisit, onRender } from './ui/feed.js';
+import { render as renderFeed, toggleDetailsView, setOverviewTab, showSliceOnBoard, getView, showLibrary, showBoard, showOutline, showStart, showPreface, startReading, showSlicePage, leaveSlicePage, sliceOpenedFrom, wasInLibrary, isNewVisit, onRender } from './ui/feed.js';
 
 // Features
 import { showActions } from './features/connect/actionSheet.js';
@@ -15,6 +17,11 @@ import { showPicker, pickElement, showSVPicker, pickSVTrigger, showMultiPicker, 
 import { initBoard, openChapterPicker, toggleFabMenu, openUpdatedByPicker, openProcessorInputs } from './features/board/sheets.js';
 import { initDetails } from './features/details/view.js';
 import { initOutline } from './features/outline/view.js';
+import { initLiterature } from './features/literature/view.js';
+import { initWaiting } from './features/literature/waiting.js';
+import { initVotes } from './features/literature/votesView.js';
+import { initDraftFile, exportDraft } from './features/literature/draftFile.js';
+import { isLiterature } from './features/literature/rules.js';
 import { initComments } from './features/comments/sheet.js';
 import { initReviewClient } from './features/review/client.js';
 import { initReviewView, updateReviewChip } from './features/review/view.js';
@@ -28,7 +35,9 @@ import { reviewOf, canAddScenariosHere } from './features/review/client.js';
 import { readyToChange } from './features/sync/client.js';
 import { openModelNameSheet } from './features/board/sheets.js';
 import { showToast as toastTitle } from './ui/toast.js';
-import { account, isKept, isReviewerAccount, keepOnServer } from './features/sync/client.js';
+import { account, isKept, isReviewerAccount, keepOnServer, serverIdOfModel, holderOf } from './features/sync/client.js';
+import { isAgent } from './features/library/sections.js';
+import { copyText } from './ui/clipboard.js';
 
 // The book's own menu (⋮ by its title): its name and description; and, for a library book,
 // who reviews it (People…) and review / verify links. A book only on this device can be kept
@@ -39,7 +48,10 @@ function openTitleMenu() {
   const canKeep = !isKept(id) && !isReviewerAccount();
   const follows = followMenu();
   // A plan's final go: Send to press (its refined slices are built next), or take it back
-  const press = !follows || isReviewerAccount() ? null : pressMenu();
+  const press = !follows || !inLibrary ? null : pressMenu();
+  // Two rounds: the chapters and slices first (any book but a build book)
+  const st = projectState();
+  const structure = !follows || isReviewerAccount() || st.structure?.approved ? 0 : Object.keys(st.slices).length;   // builders take plans from the library: only a library book goes to press
   const option = (action, icon, title, desc, attr = 'data-title-action') => `
     <div class="sheet-option" ${attr}="${action}" data-model="${id}">
       <div class="sheet-option-icon" style="background: var(--surface-hover);">${icon}</div>
@@ -47,20 +59,44 @@ function openTitleMenu() {
     </div>`;
   openBoardSheet(`
     <div class="sheet-title">This book</div>
-    ${option('name', '✏️', 'Name &amp; description', 'What it is called and what it is for')}
+    ${bookInfo(id, st)}
+    ${option('name', '✏️', 'Name &amp; description', 'What it is called, what it is for (its preface) and its tags')}
+    ${st.modelDescription ? option('preface', '📖', 'Preface', 'The first page: why this book is being written') : ''}
     ${inLibrary ? option('people', '👥', 'People…', 'Invite reviewers by email; who has joined; remove') : ''}
     ${inLibrary ? option('review', '↗', 'Review &amp; verify…', 'A link for someone without an account: review the plan, or verify the shipped app') : ''}
     ${!isOpenBuild() ? '' : option('plan', '📝', 'Start a plan from this build', 'A new book, its start the build’s model, that follows the app’s build')}
     ${!follows ? '' : follows.following
       ? option('unfollow', '⏹', `Stop following ${escapeHtml(follows.app)}’s build`, 'What is Done stays as it is')
       : option('follow', '🔗', `Follow ${escapeHtml(follows.app || 'an app')}’s build`, 'Each new build marks the slices it has as Done')}
+    ${structure ? option('structure', '✓', 'Approve structure', `Round one: these ${structure} slices and their chapters are right; the content (scenarios or paragraphs) comes next`) : ''}
     ${!press ? '' : press.stop
       ? option('press-stop', '⏹', 'Stop the press', 'Take it back before a builder takes it')
       : option('press', '🖨', 'Send to press', press.refused ? escapeHtml(press.refused) : `Your go: its ${press.count} refined ${press.count === 1 ? 'slice is' : 'slices are'} built next`)}
     ${!canKeep ? '' : account()
       ? option('keep', '☁', 'Keep in your library', 'Saved to the server and checked out here; then invite reviewers and send review links')
       : option('keep', '☁', 'Sign in to keep it in your library', 'Then invite reviewers and send review links', 'data-sync-action')}
+    ${option('copy-id', '#', 'Copy book id', `${escapeHtml(bookIdFor(id))}: paste it to an agent (open_model) so it works on this very book`)}
     ${option('close', '▤', 'Close the book', 'Back to the bookshelves')}`);
+}
+
+// The id an agent knows the book by: its library id when it's kept there, else this device's
+const bookIdFor = id => (isKept(id) ? serverIdOfModel(id) : null) || id;
+
+// Which book this is, so she knows she's in the right place: its name, its id (tap to copy), where
+// it lives and who has it, and its size
+function bookInfo(id, st) {
+  const holder = holderOf(id);
+  const where = !isKept(id) ? 'Only on this device'
+    : !holder ? '☁ In your library · checked in'
+    : holder.you ? '☁ In your library · checked out here'
+    : `☁ In your library · checked out ${isAgent(holder) ? `to ${escapeHtml(holder.deviceName || 'an agent')}` : `on ${escapeHtml(holder.deviceName || 'another device')}`}`;
+  const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+  const chapters = st.chapterOrder?.length || 0, slices = Object.keys(st.slices || {}).length;
+  return `<div class="bk-info">
+      <div class="bk-name">${escapeHtml(st.modelName || 'Untitled model')}</div>
+      <button class="bk-id" data-title-action="copy-id" data-model="${id}" title="Copy it, to give an agent">${escapeHtml(bookIdFor(id))} <span aria-hidden="true">⧉</span></button>
+      <div class="bk-meta">${where} · ${n(chapters, 'chapter', 'chapters')} · ${n(slices, st.kind === 'literature' ? 'paragraph' : 'slice', st.kind === 'literature' ? 'paragraphs' : 'slices')}</div>
+    </div>`;
 }
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-title-action]');
@@ -69,10 +105,17 @@ document.addEventListener('click', e => {
   const a = t.dataset.titleAction;
   hideAllSheets();
   if (a === 'close') window.EventPad.showLibrary();
+  else if (a === 'copy-id') { const bookId = bookIdFor(id); copyText(bookId).then(ok => toastTitle(ok ? `Copied ${bookId}` : `Book id: ${bookId}`)); }
+  else if (a === 'preface') window.EventPad.showPreface();
   else if (a === 'name') readyToChange(id).then(why => why ? toastTitle(why) : setTimeout(() => openModelNameSheet(), 150));
   else if (a === 'people') setTimeout(() => document.dispatchEvent(new CustomEvent('eventpad:people', { detail: id })), 150);
   else if (a === 'review') setTimeout(() => document.dispatchEvent(new CustomEvent('eventpad:reviews', { detail: id })), 150);
   else if (a === 'follow' || a === 'unfollow') readyToChange(id).then(why => why ? toastTitle(why) : a === 'follow' ? followFromMenu() : stopFollowing());
+  else if (a === 'structure') readyToChange(id).then(why => {
+    const no = why || approveStructure({ by: nickname() || account()?.email || null });
+    toastTitle(no || 'Structure approved: the content comes next');
+    if (!no) renderFeed();
+  });
   else if (a === 'press' || a === 'press-stop') readyToChange(id).then(why => why ? toastTitle(why) : pressFromMenu(a === 'press'));
   else if (a === 'plan') startPlan().then(why => why ? toastTitle(why) : window.EventPad.showOutline());
   else if (a === 'keep') keepOnServer(id)
@@ -84,6 +127,7 @@ import { initSlicePage } from './features/slicePage/view.js';
 import { initImportMatch } from './features/testImport/matchSheet.js';
 import { initLive } from './features/live/live.js';
 import { initCompare, openComparePicker } from './features/compare/view.js';
+import { initPreface } from './features/preface/view.js';
 import { initSync } from './features/sync/client.js';
 import { initSyncView, updateCheckoutBanner } from './features/sync/view.js';
 import { openBoardSheet } from './features/board/sheets/shared.js';
@@ -94,15 +138,17 @@ import { initBuildVersions } from './features/buildVersions/view.js';
 import { initFollow, followMenu, followFromMenu, stopFollowing, isOpenBuild, startPlanFromThisBuild as startPlan } from './features/buildVersions/follow.js';
 import { escapeHtml } from './features/board/view.js';
 import { pressMenu, pressFromMenu } from './features/press/view.js';
+import { approveStructure } from './features/article/command.js';
+import { nickname } from './features/comments/command.js';
 import { initShareImage } from './features/shareImage/sheet.js';
 import { initShareLink } from './features/shareLink/link.js';
 import { promptSliceName, dispatchNameSlice, dismissSlicePrompt, initNameSlice } from './features/nameSlice/sheet.js';
 import { undo, clearAll } from './features/undo/command.js';
 import { toggleEventLog, copyEvent, copyAllEvents, exportModel, importModel } from './features/eventLog/panel.js';
 import { exportForEventmodelers } from './features/eventmodelers/export.js';
-import { openPropertySheet, saveProperty, deleteProperty, initProperties, confirmPropagate, skipPropagate } from './features/properties/sheet.js';
+import { openPropertySheet, saveProperty, deleteProperty, initProperties } from './features/properties/sheet.js';
 import { deleteElement } from './features/deleteElement/command.js';
-import { openElementMenu, menuRename, menuProperties, menuConnect, menuDelete, menuRemoveFromSlice, menuToggleExternal, menuToggleTable, menuComment, menuToggleTrigger, menuToggleTodo, menuToggleList, menuUpdatedBy, menuProcessorInputs, menuShowElement, menuSetElementFlow } from './features/elementMenu/sheet.js';
+import { openElementMenu, menuRename, menuProperties, menuConnect, menuDelete, menuRemoveFromSlice, menuToggleExternal, menuTogglePublished, menuToggleTable, menuComment, menuToggleTrigger, menuToggleTodo, menuToggleList, menuUpdatedBy, menuProcessorInputs, menuShowElement, menuSetElementFlow } from './features/elementMenu/sheet.js';
 import { 
   openAddScenarioSheet, 
   openEditScenarioSheet, 
@@ -154,6 +200,8 @@ window.EventPad = {
   showBoard,
   showOutline,
   showStart,
+  showPreface,
+  startReading,
   showDirectPicker,
   
   // nameSlice
@@ -179,8 +227,6 @@ window.EventPad = {
   openPropertySheet,
   saveProperty,
   deleteProperty,
-  confirmPropagate,
-  skipPropagate,
   
   // deleteElement
   deleteElement,
@@ -193,6 +239,7 @@ window.EventPad = {
   menuDelete,
   menuRemoveFromSlice,
   menuToggleExternal,
+  menuTogglePublished,
   menuToggleTable,
   menuComment,
   menuToggleTrigger,
@@ -213,6 +260,7 @@ window.EventPad = {
   createScreenForSlice,
 
   exportNotation,
+  exportDraft,
   // burger
   openSettings: () => openBoardSheet(settingsHtml()),
   showAbout: () => {
@@ -224,6 +272,11 @@ window.EventPad = {
   openExport: () => openBoardSheet(`
     <div class="sheet-title">Export</div>
     <div class="sheet-options">
+      ${!isLiterature(projectState()) ? '' : `<div class="sheet-option" onclick="window.EventPad.hideSheets(); window.EventPad.exportDraft()">
+        <div class="sheet-option-icon" style="background: var(--surface-hover);">✎</div>
+        <div class="sheet-option-text"><div class="sheet-option-title">Markdown</div>
+          <div class="sheet-option-desc">The post in reading order, paragraphs joined from their sentences, Parked left out</div></div>
+      </div>`}
       <div class="sheet-option" onclick="window.EventPad.hideSheets(); window.EventPad.exportModel()">
         <div class="sheet-option-icon" style="background: var(--surface-hover);">⬇</div>
         <div class="sheet-option-text"><div class="sheet-option-title">Model</div>
@@ -346,8 +399,11 @@ function initDebugConsole() {
 // ===========================================
 
 async function init() {
+  // eventpad.itsybit.se is now eventbook.itsybit.se: the old address sends every visit on, link and all (moveHouse.js)
+  if (leaveOldAddress()) return;
+  tidyMovedMark();
   // Read before the link features take their parameter out of the address
-  const openedByLink = /[?&](m=|review=|live\b)/.test(location.search);
+  const openedByLink = /[?&](m=|book=|review=|live\b)/.test(location.search);
   const newVisit = isNewVisit();
   // Models live in IndexedDB: load them all before the first render. Only a slow
   // load says anything.
@@ -358,6 +414,9 @@ async function init() {
     note.textContent = 'Opening your models…';
     document.body.appendChild(note);
   }, 300);
+  // On the new address, once: bring over the books this device kept at the old one, before they load
+  let movedBooks = null;
+  try { movedBooks = await moveIn(); } catch (e) { /* the next visit tries again */ }
   try { await initStore(); } finally {
     clearTimeout(slow);
     document.getElementById('storeLoading')?.remove();
@@ -365,6 +424,7 @@ async function init() {
 
   // Load saved events
   loadEventStream();
+  if (movedBooks) setTimeout(() => toastTitle(`Moved ${movedBooks} ${movedBooks === 1 ? 'book' : 'books'} here from eventpad.itsybit.se`), 600);
   
   // Initialize UI components
   initSheets();
@@ -375,8 +435,12 @@ async function init() {
   initBoard();
   initDetails();
   initOutline();
+  initLiterature();
+  initVotes();
+  initWaiting();
+  initDraftFile();
   initComments();
-  initSlicePage({ showSlicePage, showSliceOnBoard });
+  initSlicePage({ showSlicePage, showSliceOnBoard, sliceOpenedFrom });
   initLibrary();
   initBuildVersions();
   initFollow();
@@ -392,6 +456,7 @@ async function init() {
   initShareLink();
   initLive();
   initCompare({ showCompare });
+  initPreface({ startReading });
   initSyncView();
   initReviewClient();
   initSharedClient();
@@ -424,6 +489,8 @@ async function init() {
   onRender(updateReviewChip);
   initStatusFilter(renderFeed);
   initUsageStats();
+  // The feedback widget's "what you just did": screens, taps, the book's event types, crashes (no text)
+  installSteps({ currentView: getView, onRender, onAppend });
   initSettings({ openSheet: html => openBoardSheet(html), render: renderFeed });
   initProductUsage({ openSheet: html => openBoardSheet(html), settings: settingsHtml });
   // A review that lets you add scenarios: the board's ＋ Scenario shows on a book that is otherwise read-only

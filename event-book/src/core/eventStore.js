@@ -13,7 +13,7 @@
 // ===========================================
 
 import { EventTypes, commentEventTypes } from './constants.js';
-import { isFrozen } from '../features/editions/rules.js';
+import { isFrozen, retiredOf } from '../features/editions/rules.js';
 
 // Re-export for convenience
 export { EventTypes };
@@ -215,6 +215,12 @@ function touch(id) {
 export function historyOf(events) {
   const snapshot = events[0]?.type === EventTypes.ModelSnapshot;
   return { snapshot, changes: snapshot ? events.length - 1 : events.length };
+}
+
+// A book's stored events themselves, not a copy: read only. null without IndexedDB
+// (localStorage is parsed afresh every read, so there's nothing to remember a projection by)
+export function storedEvents(id) {
+  return db ? (streams.get(id) || null) : null;
 }
 
 // Any model's events, without opening it (for the library)
@@ -420,7 +426,8 @@ function reviewBlocked() {
 }
 
 function frozenBlocked() {
-  import('../ui/toast.js').then(t => t.showToast('Published: start the next draft to change it')).catch(() => {});
+  const message = retiredOf(eventStream) ? 'Retired plans are read only' : 'Published: start the next draft to change it';
+  import('../ui/toast.js').then(t => t.showToast(message)).catch(() => {});
 }
 
 // Told after every new event (sync uses it to send changes a few seconds later)
@@ -433,14 +440,20 @@ export function onAppend(fn) { appendListeners.add(fn); }
 let appendRule = null;
 export function setAppendRule(fn) { appendRule = fn; }
 
+// A newer build that changes nothing moves the latest edition (ModelSourceSet + EditionPublished, buildVersions/rules.js);
+// a person publishing twice is refused by Publish Edition itself (editions/rules.js)
+const ON_PUBLISHED = new Set([EventTypes.NextDraftStarted, EventTypes.UsageImported, EventTypes.ModelDescribed, EventTypes.BookPrefaceWritten, EventTypes.BookTagged,
+  EventTypes.ModelSourceSet, EventTypes.EditionPublished]);
+
 export function appendEvent(type, data) {
   // A comment is talk, not a change: it goes onto a read-only or published book too
   const allowed = typeGuard(currentModelId, type);
   if (allowed === false) { reviewBlocked(); return null; }
   const talk = allowed === true || commentEventTypes.has(type);
   if (!talk && editGuard && !editGuard(currentModelId)) { editBlocked?.(currentModelId); return null; }
-  // Frozen: only the event that starts the next draft (and an app's usage: no change to the model) goes onto a published book's history
-  if (!talk && type !== EventTypes.NextDraftStarted && type !== EventTypes.UsageImported && isFrozen(eventStream)) { frozenBlocked(); return null; }
+  // Frozen: only the event that starts the next draft (and what changes no model: an app's usage, the
+  // book's description, preface and tags) goes onto a published book's history. Its name stays: build books are found by it
+  if (!talk && !ON_PUBLISHED.has(type) && isFrozen(eventStream)) { frozenBlocked(); return null; }
   // A change made while scrubbing goes onto now, not the past
   replayLimit = null;
   const event = {

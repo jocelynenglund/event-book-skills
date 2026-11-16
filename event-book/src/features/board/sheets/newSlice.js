@@ -3,7 +3,6 @@
 // ===========================================
 
 import { projectState } from '../../../core/projections.js';
-import { externalAttr, byName } from '../../../core/constants.js';
 import { hideAllSheets } from '../../../ui/sheets.js';
 import { showToast } from '../../../ui/toast.js';
 import { render } from '../../../ui/feed.js';
@@ -12,6 +11,11 @@ import { appendEvent, EventTypes } from '../../../core/eventStore.js';
 import { escapeHtml } from '../view.js';
 import { onEnter, openBoardSheet, scrollToSlice, searchKey, sliceTypeHelp } from './shared.js';
 import { isReadOnly } from '../../readOnly/sheet.js';
+import { newSliceView, automationView, newSlicePartner, processorNamed } from './read.js';
+import { newSliceChapterChip, pickChip } from './parts.js';
+
+// The book, through one sheet's view: the sheets read nothing of it but what their view holds
+const viewOf = (view, ...args) => view(projectState(), ...args);
 
 // ---------- New slice ----------
 
@@ -22,16 +26,14 @@ let newSlicePosition = null; // { before | after: sliceId } — null appends at 
 // position: insert next to a slice; the new slice joins that slice's chapter.
 export function openNewSliceSheet(chapterId, position = null) {
   if (isReadOnly()) return;   // not checked out here: nothing to change
-  const state = projectState();
+  const v = viewOf(newSliceView, chapterId, position);
   newSlicePosition = position;
-  const anchor = position && state.slices[position.before || position.after];
-  newSliceChapter = anchor ? (anchor.chapterId || null)
-    : chapterId !== undefined ? chapterId : (state.chapterOrder[state.chapterOrder.length - 1] || null);
-  const where = anchor ? `<span class="bd-sheet-sub">${position.before ? 'before' : 'after'} ${escapeHtml(anchor.name || 'this slice')}</span>` : '';
+  newSliceChapter = v.chapterId;
+  const where = v.where ? `<span class="bd-sheet-sub">${v.where.side} ${escapeHtml(v.where.name)}</span>` : '';
   openBoardSheet(`
     <div class="sheet-title">New slice ${where}</div>
     <input type="text" class="sheet-input" id="bdSliceName" placeholder="Name it, e.g. Place order">
-    ${anchor ? '' : renderChapterChips(state)}
+    ${renderChapterChips(v.chips)}
     <div class="sheet-options">
       ${Object.entries(sliceTypeHelp).map(([type, h]) => `
         <div class="sheet-option" data-board-action="create-slice" data-slice-type="${type}">
@@ -44,15 +46,12 @@ export function openNewSliceSheet(chapterId, position = null) {
     </div>`, 'bdSliceName');
 }
 
-function renderChapterChips(state) {
-  if (!state.chapterOrder.length) return '';
-  const chip = (id, label) => `
-    <button class="bd-chapter-chip ${newSliceChapter === id ? 'active' : ''}" data-board-action="pick-new-chapter" data-chapter="${id || ''}">${escapeHtml(label)}</button>`;
+function renderChapterChips(chips) {
+  if (!chips.length) return '';
   return `
     <div class="bd-sheet-label">Chapter</div>
     <div class="bd-chapter-chips">
-      ${state.chapterOrder.map(id => chip(id, state.chapters[id].name)).join('')}
-      ${chip(null, 'No chapter')}
+      ${chips.map(newSliceChapterChip).join('')}
     </div>`;
 }
 
@@ -65,7 +64,7 @@ function submitNewSlice(sliceType) {
 // Place the new slice (and an automation's partner) where asked, then show it
 function finishNewSlice(sliceId) {
   if (newSlicePosition) {
-    const partner = projectState().slices[sliceId]?.pairWith;
+    const partner = viewOf(newSlicePartner, sliceId);
     placeSlices([sliceId, partner].filter(Boolean), newSlicePosition);
   }
   hideAllSheets();
@@ -81,14 +80,12 @@ function finishNewSlice(sliceId) {
 // out) is one state change, with "reads" / "⚡ on" tags on the processor card.
 // A read model can be a to-do list (a saga's work queue), or not.
 
-let autoCtx = null; // { name, event, reads }
+let autoCtx = null; // { name, event, reads, triggers: the events it can be triggered by, by id }
 
 function openAutomationSheet(name) {
-  const state = projectState();
-  autoCtx = { name, event: null, reads: null };
-  const events = Object.values(state.elements).filter(e => e.type === 'event').sort(byName);
-  const models = Object.values(state.elements).filter(e => e.type === 'readModel').sort(byName);
-  const chip = (e, pick) => `<button class="bd-chip" data-type="${e.type}"${externalAttr(e)} data-board-action="auto-pick" data-pick="${pick}" data-el="${e.id}" data-key="${escapeHtml(searchKey(e.name))}">${e.todo ? '☑ ' : ''}${escapeHtml(e.name)}</button>`;
+  const { events, readModels: models } = viewOf(automationView);
+  autoCtx = { name, event: null, reads: null, triggers: Object.fromEntries(events.map(e => [e.id, e])) };
+  const chip = (e, pick) => pickChip(e, 'auto-pick', pick);
   openBoardSheet(`
     <div class="sheet-title">The system reacts ${name ? `<span class="bd-sheet-sub">${escapeHtml(name)}</span>` : ''}</div>
     <div class="bd-cell-hint" id="bdAutoHint"></div>
@@ -131,8 +128,7 @@ function updateAutoHint() {
   if (!hint) return;
   const fresh = !!document.getElementById('bdAutoRead')?.value.trim();
   document.getElementById('bdAutoTodoRow').hidden = !fresh;
-  const state = projectState();
-  const trigger = autoCtx.event && state.elements[autoCtx.event];
+  const trigger = autoCtx.event && autoCtx.triggers[autoCtx.event];
   hint.textContent = fresh
     ? 'Adds 2 slices: a view of the new read model it reads, then what it does.'
     : autoCtx.reads ? 'Adds 1 slice: the read model already has its own view.'
@@ -141,13 +137,11 @@ function updateAutoHint() {
 }
 
 function createAutomationFromSheet() {
-  const state = projectState();
   const procName = document.getElementById('bdAutoProc')?.value.trim();
   const readName = document.getElementById('bdAutoRead')?.value.trim();
   const isTodo = !!document.getElementById('bdAutoIsTodo')?.checked;
-  const existingProc = procName && Object.values(state.elements)
-    .find(e => e.type === 'processor' && searchKey(e.name) === searchKey(procName));
-  const proc = existingProc ? { elementId: existingProc.id } : { name: procName };
+  const existingProc = procName && viewOf(processorNamed, procName);
+  const proc = existingProc ? { elementId: existingProc } : { name: procName };
 
   if (readName) {
     // A new read model gets its own view, with the trigger event feeding it

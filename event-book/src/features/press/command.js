@@ -8,13 +8,15 @@
 // SC: Attach Build — the deploy's build edition of that app goes onto the plan being built.
 // SC: Check In Built Plan — the builder brings it back with the build: the slices it sent to
 //     press that the build has go Done; the rest wait.
+// SC: Attach Newer Build — a plan checked in with a build takes a newer build of its app (the
+//     right one was posted late), without going back to press.
 // SV: Plan Status, Build Summary — on the shelf and the book's details.
 // Each command returns null when it recorded its event, else why it was refused.
 // ===========================================
 
 import { appendEvent, EventTypes } from '../../core/eventStore.js';
 import { projectState, getOrderedSlices, sliceTitle } from '../../core/projections.js';
-import { compareModels } from '../compare/diff.js';
+import { compareModels, norm } from '../compare/diff.js';
 import { appOfPlan } from '../buildVersions/rules.js';
 
 const refinedIds = state => getOrderedSlices(state).filter(s => s.refined).map(s => s.id);
@@ -40,10 +42,30 @@ export function startRefusal(state, { holder = null } = {}) {
   return null;
 }
 
-export function attachRefusal(state, app) {
+const otherApp = (p, app) => p.app && app && String(p.app).toLowerCase() !== String(app).toLowerCase();
+const POST_FIRST = 'post the new build first (systemctl --user start eventpad-models.service), then finish again';
+const short = c => String(c || '').slice(0, 7);
+
+// The library's newest build can predate the work (the posting job hadn't run yet): attaching it
+// would check the plan in with nothing done. An older build that has some of the pressed slices
+// is fine: the work was done before the plan went to press. built: the build book's state
+export function attachRefusal(state, app, { commit = null, build = null, createdAt = null, built = null } = {}) {
   const p = state.press;
   if (p?.stage !== 'building') return 'Nobody is building this plan';
-  if (p.app && app && String(p.app).toLowerCase() !== String(app).toLowerCase()) return `This plan is being built for ${p.app}, not ${app}`;
+  if (otherApp(p, app)) return `This plan is being built for ${p.app}, not ${app}`;
+  if (built && builtRows(state, built).has.length) return null;
+  const which = `Build ${build ?? '?'}`;
+  if (commit && p.fromCommit && short(commit) === short(p.fromCommit)) return `${which} is the commit building started from: ${POST_FIRST}`;
+  if (createdAt && p.since && new Date(createdAt) < new Date(p.since)) return `${which} was made before building started: ${POST_FIRST}`;
+  return null;
+}
+
+export function newerBuildRefusal(state, app, edition) {
+  const p = state.press;
+  if (p?.stage !== 'built') return 'Not checked in with a build yet: finish building instead';
+  if (otherApp(p, app)) return `This plan was built for ${p.app}, not ${app}`;
+  const has = p.build?.edition ?? p.back?.edition ?? null;
+  if (has != null && edition != null && edition <= has) return `It has edition ${has} already: nothing newer to attach`;
   return null;
 }
 
@@ -61,7 +83,11 @@ function builtRows(state, built) {
   const rows = built ? compareModels(state, built).rows : [];
   const has = rows.filter(r => r.plan && sent.has(r.plan.id) && r.built && (r.status === 'built' || r.status === 'differs'));
   const hasIds = new Set(has.map(r => r.plan.id));
-  return { has, missing: [...sent].filter(id => !hasIds.has(id)), extra: rows.filter(r => r.status === 'new') };
+  // Built but not planned: in the plan's own chapters (a plan for one chapter of a big app isn't
+  // about the rest of it); a plan with no chapters takes them all
+  const chapters = new Set(Object.values(state.chapters || {}).map(c => norm(c.name)));
+  const extra = rows.filter(r => r.status === 'new' && (!chapters.size || chapters.has(norm(r.chapter || ''))));
+  return { has, missing: [...sent].filter(id => !hasIds.has(id)), extra };
 }
 
 // ---------- Commands (on the open plan) ----------
@@ -85,8 +111,8 @@ export function startBuilding({ builder, fromCommit = null, holder = null, state
   return record(EventTypes.PlanCheckedOutForBuild, { app: state.press.app || appOf(state), builder, fromCommit });
 }
 
-export function attachBuild({ app, edition = null, commit = null, build = null, scenarios = null, repo = null, workflow = null, state = projectState() } = {}) {
-  const refused = attachRefusal(state, app);
+export function attachBuild({ app, edition = null, commit = null, build = null, scenarios = null, repo = null, workflow = null, createdAt = null, built = null, state = projectState() } = {}) {
+  const refused = attachRefusal(state, app, { commit, build, createdAt, built });
   if (refused) return refused;
   const data = { app, edition, commit, build, scenarios };
   if (repo) data.repo = repo;
@@ -98,6 +124,11 @@ export function attachBuild({ app, edition = null, commit = null, build = null, 
 export function checkInBuiltPlan({ by = null, built = null, state = projectState() } = {}) {
   const refused = checkInRefusal(state, by);
   if (refused) return refused;
+  return markBuiltAndCheckIn(state, built);
+}
+
+// The press's slices the attached build has go Done at its commit; then it's checked in
+function markBuiltAndCheckIn(state, built) {
   const { edition, commit } = state.press.build;
   const { has, missing } = builtRows(state, built);
   for (const r of has) {
@@ -105,6 +136,16 @@ export function checkInBuiltPlan({ by = null, built = null, state = projectState
     if (!appendEvent(EventTypes.SliceMarkedBuilt, { sliceId: r.plan.id, commit, edition })) return 'Read only';
   }
   return record(EventTypes.PlanCheckedInWithBuild, { edition, commit, done: has.length, missing: missing.length });
+}
+
+// built: the build book's state at that edition
+export function attachNewerBuild({ app, edition = null, commit = null, build = null, scenarios = null, workflow = null, built = null, state = projectState() } = {}) {
+  const refused = newerBuildRefusal(state, app, edition);
+  if (refused) return refused;
+  const data = { app, edition, commit, build, scenarios };
+  if (workflow) data.workflow = workflow;
+  if (!appendEvent(EventTypes.BuildAttached, data)) return 'Read only';
+  return markBuiltAndCheckIn(projectState(), built);
 }
 
 // ---------- Read models ----------

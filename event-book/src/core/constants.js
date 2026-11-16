@@ -5,6 +5,7 @@ export const EventTypes = {
   ElementDeleted: 'ElementDeleted',
   ElementExternalSet: 'ElementExternalSet', // an event that comes from another system
   ElementTableSet: 'ElementTableSet',       // an event that is really a legacy table (read as events), shadowy orange { elementId, table }
+  ElementPublishedSet: 'ElementPublishedSet', // one of our events published to other systems (an integration event, a contract) { elementId, published, to? }
   ConnectionRemoved: 'ConnectionRemoved',
   ElementRenamed: 'ElementRenamed',
   ElementTodoSet: 'ElementTodoSet',
@@ -37,20 +38,42 @@ export const EventTypes = {
   SliceRefinedCleared: 'SliceRefinedCleared',
   SliceMarkedBuilt: 'SliceMarkedBuilt',       // done: confirmed against a model built from the tests { sliceId, commit }
   SliceBuiltCleared: 'SliceBuiltCleared',
+  ScenariosWaived: 'ScenariosWaived',         // nothing to test here: it can be refined with no scenarios, and no spec is expected { sliceId, reason, waivedBy }
+  ScenarioWaiverLifted: 'ScenarioWaiverLifted', // it needs scenarios after all (by hand, or one was added) { sliceId, liftedBy, why }
+  StructureApproved: 'StructureApproved',     // round one: the chapters and slices are right, as laid out { approvedBy, chapters, slices }
+  ParagraphWritten: 'ParagraphWritten',       // round two for an article: a point's actual text { paragraphId, sliceId, text, by }
+  ParagraphEdited: 'ParagraphEdited',         // { paragraphId, text }
+  BookKindChosen: 'BookKindChosen',           // when a book is made: fact (the model, today's Event Book) or literature (a story: paragraphs and sentences) { bookId, kind }
+  DraftImported: 'DraftImported',             // her own text came in as a literature book (features/literature) { title, author, paragraphs, sentences }
+  SentenceAdded: 'SentenceAdded',             // a literature point's sentence, where a scenario would sit { sentenceId, sliceId, text, by }
+  GapAdded: 'GapAdded',                       // an empty point asked for, named by its question { sliceId, afterSliceId, question, by }
+  GapFilled: 'GapFilled',                     // she wrote it: its text split into sentences { sliceId, by, text, sentences: [{ sentenceId, text }] }
+  EditSuggested: 'EditSuggested',             // a numbered, smallest-possible change to one of her sentences { suggestionId, n, sliceId, sentenceId, find, replace, why, by }
+  SuggestionsAccepted: 'SuggestionsAccepted', // some applied to the sentences, some skipped (closed, not lost) { sliceId, accepted: [suggestionId], skipped: [suggestionId], edits: [{ sentenceId, text }] }
+  PointParked: 'PointParked',                 // a paragraph set aside in the Parked chapter; where it came from { sliceId, from, after }
+  PointUnparked: 'PointUnparked',             // and brought back { sliceId }
+  RequirementSet: 'RequirementSet',           // a literature chapter's requirement block (a door's challenge); '' takes it away { chapterId, text, by }
+  VoteCast: 'VoteCast',                       // a reader 👍s a chapter: one per reader per chapter; a reviewer as their review's reviewerId { chapterId, voterId, nickname, why }
+  VoteWithdrawn: 'VoteWithdrawn',             // and takes it back { chapterId, voterId }
+  VotingOpened: 'VotingOpened',               // the owner opens (or reopens) voting, maybe until a time { by, until }
+  VotingClosed: 'VotingClosed',               // the owner closes it; the tally stays { by }
   PlanSentToPress: 'PlanSentToPress',         // the owner's final go: its refined slices are to be built { app, slices: [sliceId], sentBy }
   PressStopped: 'PressStopped',               // taken back from the press before a builder took it {}
   PlanCheckedOutForBuild: 'PlanCheckedOutForBuild', // a builder took it { app, builder, fromCommit }
   BuildAttached: 'BuildAttached',             // the deploy's build edition, attached to the plan being built { app, edition, commit, build, scenarios, repo, workflow }
   PlanCheckedInWithBuild: 'PlanCheckedInWithBuild', // back with its build: built slices Done { edition, commit, done, missing }
+  SliceProgressReported: 'SliceProgressReported', // a builder says where a slice is: started, red, green, pr or stuck { sliceId, step, note, pr: { number, url }, tests: { passing, total }, by, at } (features/buildProgress)
   SpecsGenerated: 'SpecsGenerated',          // refined slices written as pending specs in the app's repo { app, repo, language, slices: [sliceId], files: [{ path, hash }] }
   SpecsRegenerated: 'SpecsRegenerated',       // the same, again after the slices changed: untouched files rewritten, hand-edited ones proposed
   SliceMarkedReady: 'SliceMarkedReady',       // older models: read as SliceMarkedRefined
   SliceReadyCleared: 'SliceReadyCleared',     // older models: read as SliceRefinedCleared
   EditionPublished: 'EditionPublished',       // the whole book, every slice done and a build compared: frozen { edition, commit }
+  SlicesBuilt: 'SlicesBuilt',                 // a build book's log of one edition: the slices it added since the edition before { app, commit, build, edition, at, slices, baseline } (baseline: the app's first edition, not counted)
   NextDraftStarted: 'NextDraftStarted',       // a copy of a published book, to change { fromEdition, edition, draft, fromModel }
   BookReplacedFromImport: 'BookReplacedFromImport', // an import of the same book took its place; the snapshot before it holds the import, the history the old content { fileName, from, matchedBy }
   UsageImported: 'UsageImported',             // a build book gets an app's usage for a window (features/usage); the book stays published { app, at, since, days, total, counts, unmatched }
   BuildFollowed:'BuildFollowed',             // a plan follows an app's build book: its newest edition marks Done { app, followedBy }
+  PlanRetired: 'PlanRetired',                 // a plan whose every slice is built is put away: read only, on the Retired shelf { modelId, app, edition, retiredAt }
   BuildUnfollowed: 'BuildUnfollowed',         // it stops; Done stays { app }
   CompareSettled: 'CompareSettled',           // a compare confirmed or rejected: the draft goes up { draft }
   SliceAdopted: 'SliceAdopted',               // compare: the built slice took the planned one's place { sliceId, commit }
@@ -74,6 +97,10 @@ export const EventTypes = {
   // Model events
   ModelNamed: 'ModelNamed',
   ModelDescribed: 'ModelDescribed',
+  // The book's few short tags, the whole set each time
+  BookTagged: 'BookTagged',
+  // The book's preface: why it is being written, the first page the first time it is opened (its own text, not the description)
+  BookPrefaceWritten: 'BookPrefaceWritten',
   // A whole model's state in one event, with no history (share links, Export without history)
   ModelSnapshot: 'ModelSnapshot',
 
@@ -91,6 +118,8 @@ export const EventTypes = {
   SliceFlowSet: 'SliceFlowSet',
   ElementFlowSet: 'ElementFlowSet', // an outcome event that belongs to a flow (e.g. Capture failed)
   SlicesPaired: 'SlicesPaired',
+  SlicesUnpaired: 'SlicesUnpaired',   // an automation's two halves go their own ways again
+  SliceActorSet: 'SliceActorSet',     // who drives a slice's top lane: 'screen' (a person) or 'processor'
 
   // Comments: talk about the model, not the model. Allowed on read-only and published
   // books, sent from any device, and they never clear Refined or Done.
@@ -118,13 +147,15 @@ export const typeIcons = {
 export function elementLabel(el) {
   if (el.type === 'readModel' && el.list) return 'Read model · list';
   if (el.type === 'event' && el.table) return 'Legacy table';
+  if (el.type === 'event' && el.published && !el.external) return 'Integration event';
   return el.type === 'event' && el.external ? 'External event' : typeLabels[el.type];
 }
 
-// data-external / data-table attributes: external events yellow, legacy tables a shadowy orange
+// data-external / data-table / data-published attributes: external events yellow, legacy tables a shadowy orange,
+// integration events (published to other systems) orange with a ↗ tab and a solid right border
 export function externalAttr(el) {
   if (el.type !== 'event') return '';
-  return `${el.external ? ' data-external="true"' : ''}${el.table ? ' data-table="true"' : ''}`;
+  return `${el.external ? ' data-external="true"' : ''}${el.table ? ' data-table="true"' : ''}${el.published && !el.external ? ' data-published="true"' : ''}`;
 }
 
 // Element type labels
@@ -246,6 +277,7 @@ export function splitArrayName(name) {
 }
 
 // A to Z the way people read names: case doesn't matter, "item 2" before "item 10"
+export const NAME_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 export function byName(a, b) {
-  return String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+  return NAME_ORDER.compare(String(a.name ?? ''), String(b.name ?? ''));
 }

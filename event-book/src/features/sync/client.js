@@ -8,8 +8,10 @@
 // ===========================================
 
 import { keptAfterKeep } from '../library/sections.js';
+import { deviceLabel } from './deviceName.js';
 import { readModelEvents, replaceModelEvents, listModels, getCurrentModelId, createModel, onAppend, setEditGuard, deleteModel } from '../../core/eventStore.js';
 import { isBuildBook } from '../buildVersions/rules.js';
+import { packSnapshotsInBrowser, unpackSnapshotsInBrowser } from '../../core/packedSnapshot.js';
 
 // Told when an edit was refused because the shelf isn't checked out here (the view offers to check out)
 let onBlocked = () => {};
@@ -31,8 +33,24 @@ const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'nul
 const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full: next time */ } };
 
 export const account = () => read(ACCOUNT_KEY, null);
-export const kept = () => read(KEPT_KEY, {});
+// Read often (every spine's foot, every sync step) and big (every synced event id): parsed
+// again only when the stored text changes. Each look gets its own top-level copy: callers change entries and write them back
+let keptSeen = { raw: undefined, value: {} };
+export const kept = () => {
+  let raw = null;
+  try { raw = localStorage.getItem(KEPT_KEY); } catch (e) { /* none */ }
+  if (raw !== keptSeen.raw) keptSeen = { raw, value: read(KEPT_KEY, {}) };
+  return { ...keptSeen.value };
+};
 export const isKept = id => !!kept()[id];
+
+// The comments written on this device that haven't reached the server yet (a library book, signed in); 0 otherwise
+export function unsentComments(modelId) {
+  const k = kept()[modelId];
+  if (!account() || !k) return 0;
+  const synced = new Set(k.synced);
+  return readModelEvents(modelId).filter(e => e.type === 'CommentAdded' && !synced.has(e.id)).length;
+}
 // A build book is only read (and talked on): it is never checked out, a plan starts from it instead
 export const isBuildShelf = id => isBuildBook(readModelEvents(id));
 export const isReviewerAccount = () => account()?.kind === 'reviewer';
@@ -46,8 +64,12 @@ export class SyncError extends Error {
   constructor(status, body) { super(body?.error || `Server said ${status}`); this.status = status; this.body = body; }
 }
 
+// Every call to the server comes through here, so this is where a big ModelSnapshot is gzipped on
+// the way up and unpacked on the way down (events arrive plain wherever they are stored or
+// projected: sync, review links, shared books, build versions)
 async function call(method, path, body) {
   const a = account();
+  if (body?.events) body = { ...body, events: await packSnapshotsInBrowser(body.events) };
   let res;
   try {
     res = await fetch(apiBase + path, {
@@ -59,6 +81,7 @@ async function call(method, path, body) {
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (res.status === 401 && a) { write(ACCOUNT_KEY, null); notify(); }   // signed out elsewhere
   if (!res.ok) throw new SyncError(res.status, data);
+  if (Array.isArray(data?.events)) data.events = await unpackSnapshotsInBrowser(data.events);
   return data;
 }
 
@@ -71,7 +94,7 @@ export const serverIdOfModel = id => serverIdOf(id);
 export const startSignIn = (email, invite) => call('POST', '/auth/start', { email, ...(invite ? { invite } : {}) });
 
 export async function verifySignIn(email, code) {
-  const deviceName = /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android phone' : 'Browser';
+  const deviceName = deviceLabel(navigator.userAgent);
   const r = await call('POST', '/auth/verify', { email, code, deviceName });
   // kind: 'member' (makes books) or 'reviewer' (invited to review books, none of its own)
   write(ACCOUNT_KEY, { token: r.token, email: r.email || email, accountId: r.accountId, admin: !!r.admin, kind: r.kind || 'member' });
@@ -94,7 +117,12 @@ export const serverLibrary = () => call('GET', '/library');
 // One device edits a kept shelf at a time. holder: { deviceId, deviceName, since, you } or
 // null (checked in). A shelf kept on the server is read-only here unless it's checked out here.
 
-export const holderOf = id => kept()[id]?.holder || null;
+// Agents signed in before they were ItsyBOT are still called "Claude on <host>": shown as ItsyBOT · <host>
+export const agentDeviceName = name => String(name || '').replace(/^Claude(?:\s+on\s+(.+))?$/i, (m, host) => host ? `ItsyBOT · ${host}` : 'ItsyBOT');
+export const holderOf = id => {
+  const h = kept()[id]?.holder || null;
+  return h?.deviceKind === 'agent' && h.deviceName ? { ...h, deviceName: agentDeviceName(h.deviceName) } : h;
+};
 export const canEdit = id => !account() || !isKept(id) || !!holderOf(id)?.you;
 function setHolder(id, holder) {
   const k = kept();
@@ -197,6 +225,7 @@ async function fetchShelf(modelId) {
   k[localId] = { serverId: modelId, position: r.position, synced: r.events.map(e => e.id), holder: r.holder || null };
   write(KEPT_KEY, k);
   notify();
+  return localId;
 }
 
 // Events in parts of at most ~800 KB of JSON (always at least one part, so an empty push still fetches)
@@ -223,6 +252,7 @@ export function syncModel(modelId) {
   const job = (async () => {
     status[modelId] = 'syncing'; notify();
     try {
+      await healLost(modelId);
       const k = kept()[modelId];
       const synced = new Set(k.synced);
       const local = readModelEvents(modelId);
@@ -276,6 +306,28 @@ export function syncModel(modelId) {
   return job;
 }
 
+// Events this device synced once but no longer has (a save that didn't stick: Safari can lose
+// its IndexedDB connection, and the book came back empty) come down again from the start,
+// with anything not sent yet kept. Otherwise the book looks synced and stays empty for good.
+async function healLost(modelId) {
+  const k = kept()[modelId];
+  const local = readModelEvents(modelId);
+  const have = new Set(local.map(e => e.id));
+  if (!k?.synced?.some(id => !have.has(id))) return;
+  const r = await call('GET', `${path(modelId)}/events?after=0`);
+  const synced = new Set(k.synced);
+  const unsent = local.filter(e => !synced.has(e.id));
+  const fromServer = r.events.filter(e => !unsent.some(u => u.id === e.id));
+  const merged = dropUndone([...fromServer, ...unsent].sort(byTime), r.undone);
+  replaceModelEvents(modelId, merged);
+  const now = kept();
+  if (now[modelId]) {
+    // What's here now came from the server, but for the unsent: that's what's synced
+    now[modelId] = { ...now[modelId], position: r.position, synced: merged.filter(e => !unsent.includes(e)).map(e => e.id) };
+    write(KEPT_KEY, now);
+  }
+}
+
 export async function syncAll() {
   if (!account()) return;
   // Who holds what, from the library listing
@@ -320,11 +372,46 @@ export async function syncAll() {
 export async function undoBatch(modelId, batch, poppedIds) {
   const k = kept()[modelId];
   if (!account() || !k || !batch || !poppedIds.some(id => k.synced.includes(id))) return;
+  // Gone here on purpose: no longer counted as synced, so healLost doesn't bring them back
+  const now = kept();
+  if (now[modelId]) { now[modelId] = { ...now[modelId], synced: now[modelId].synced.filter(id => !poppedIds.includes(id)) }; write(KEPT_KEY, now); }
   try { await call('POST', `${path(modelId)}/undo`, { batchId: batch }); } catch (e) { status[modelId] = `error: ${e.message}`; notify(); }
 }
 
 // After a change: sync the open shelf a few seconds later; and when the tab comes back
 let timer = null;
+// A browser doesn't keep a book checked out for ever: in the background for a while (another
+// device can then take it), it's sent and checked in; back again, if nobody took it meanwhile,
+// it's checked out here again without a word. Closing the tab with nothing unsent checks it in too.
+const AWAY_MS = () => { try { return Number(localStorage.getItem('eventpad_away_ms')) || 20 * 60 * 1000; } catch (e) { return 20 * 60 * 1000; } };
+let awayTimer = null;
+const returned = new Set();   // books checked in because this tab was away: taken back on return
+const heldHere = () => Object.entries(kept()).filter(([, k]) => k.holder?.you).map(([id]) => id);
+
+export async function checkInAway() {
+  for (const id of heldHere()) {
+    try { await checkIn(id); returned.add(id); } catch (e) { /* offline: it stays out, as before */ }
+  }
+}
+
+async function takeBackReturned() {
+  const ids = [...returned];
+  returned.clear();
+  for (const id of ids) {
+    try { if (!holderOf(id)) await checkOut(id); } catch (e) { /* someone else has it now: read-only here */ }
+  }
+}
+
+function checkInOnClose() {
+  if (!account() || timer) return;   // changes still waiting to go up: leave it checked out
+  const a = account();
+  heldHere().forEach(id => {
+    try {
+      fetch(`${apiBase}${path(id)}/checkin`, { method: 'POST', keepalive: true, headers: { Authorization: `Bearer ${a.token}` } });
+    } catch (e) { /* it'll be checked in by the away timer next time */ }
+  });
+}
+
 export function initSync() {
   // A shelf kept on the server changes only where it's checked out
   setEditGuard(id => canEdit(id), id => blocked(id));
@@ -332,8 +419,13 @@ export function initSync() {
     const id = getCurrentModelId();
     if (!isKept(id) || !account() || (!canEdit(id) && !commentEventTypes.has(event?.type))) return;
     clearTimeout(timer);
-    timer = setTimeout(() => syncModel(id).catch(() => {}), 3000);
+    timer = setTimeout(() => { timer = null; syncModel(id).catch(() => {}); }, 3000);
   });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncAll(); });
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(awayTimer);
+    if (document.visibilityState === 'visible') syncAll().then(takeBackReturned, takeBackReturned);
+    else if (account()) awayTimer = setTimeout(() => { if (document.visibilityState !== 'visible') checkInAway(); }, AWAY_MS());
+  });
+  window.addEventListener('pagehide', checkInOnClose);
   syncAll();
 }

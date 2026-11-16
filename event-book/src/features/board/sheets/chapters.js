@@ -2,7 +2,7 @@
 // BOARD SHEETS - Chapters: picking one for a slice, and a chapter's menu
 // ===========================================
 
-import { projectState, chapterFlows, sliceFlow } from '../../../core/projections.js';
+import { projectState } from '../../../core/projections.js';
 import { hideAllSheets } from '../../../ui/sheets.js';
 import { showToast } from '../../../ui/toast.js';
 import { render } from '../../../ui/feed.js';
@@ -14,30 +14,32 @@ import { openNewSliceSheet } from './newSlice.js';
 import { saveReference } from '../../references/store.js';
 import { onEnter, openBoardSheet, scrollToSlice } from './shared.js';
 import { isReadOnly } from '../../readOnly/sheet.js';
+import { chapterPickerView, chapterMenuView, flowPickerView } from './read.js';
+import { chapterOption, flowOption, chapterShareOption } from './parts.js';
+import { readOnlyChapterMenu } from '../../readOnly/readOnlyChapterMenu.read.js';
+import { readOnlyChapterMenuBox } from '../../readOnly/readOnly.parts.js';
+import { openShareSheet } from '../../shareImage/sheet.js';
+
+// The book, through one sheet's view: the sheets read nothing of it but what their view holds
+const viewOf = (view, ...args) => view(projectState(), ...args);
 
 // ---------- Chapters ----------
 
 // Pick (or create) the chapter a slice belongs to; sliceId null = just create one
 export function openChapterPicker(sliceId) {
   if (isReadOnly()) return;   // not checked out here: nothing to change
-  const state = projectState();
-  const slice = sliceId && state.slices[sliceId];
-  const current = slice?.chapterId || null;
+  const v = viewOf(chapterPickerView, sliceId);
   openBoardSheet(`
-    <div class="sheet-title">${slice ? 'Chapter' : 'New chapter'} ${slice ? `<span class="bd-sheet-sub">for ${escapeHtml(slice.name || 'this slice')}</span>` : ''}</div>
-    ${slice && state.chapterOrder.length ? `
+    <div class="sheet-title">${v.sliceId ? 'Chapter' : 'New chapter'} ${v.sliceId ? `<span class="bd-sheet-sub">for ${escapeHtml(v.sliceName)}</span>` : ''}</div>
+    ${v.options.length ? `
     <div class="sheet-options">
-      ${[...state.chapterOrder, null].map(id => `
-        <div class="sheet-option ${current === id ? 'selected' : ''}" data-board-action="set-chapter" data-slice="${sliceId}" data-chapter="${id || ''}">
-          <div class="sheet-option-icon" style="background: var(--surface-hover);">${current === id ? '✓' : ''}</div>
-          <div class="sheet-option-text"><div class="sheet-option-title">${id ? escapeHtml(state.chapters[id].name) : 'No chapter'}</div></div>
-        </div>`).join('')}
+      ${v.options.map(o => chapterOption(o, v.sliceId)).join('')}
     </div>
     <div class="bd-sheet-label">Or a new chapter</div>` : ''}
     <div class="bd-inline-form">
       <input type="text" class="sheet-input" id="bdChapterName" placeholder="e.g. MVP, Additional features">
       <button class="sheet-btn" data-board-action="create-chapter" data-slice="${sliceId || ''}">Add</button>
-    </div>`, slice && state.chapterOrder.length ? null : 'bdChapterName');
+    </div>`, v.options.length ? null : 'bdChapterName');
   onEnter('bdChapterName', () => submitNewChapter(sliceId));
 }
 
@@ -54,17 +56,19 @@ function submitNewChapter(sliceId) {
 let menuChapterId = null;
 
 export function openChapterMenu(chapterId) {
-  if (isReadOnly()) return;   // not checked out here: nothing to change
-  const state = projectState();
-  const chapter = state.chapters[chapterId];
-  if (!chapter) return;
+  // Not checked out here: nothing to change, only to share
+  if (isReadOnly()) {
+    const ro = viewOf(readOnlyChapterMenu, chapterId);
+    if (ro) openBoardSheet(readOnlyChapterMenuBox(ro));
+    return;
+  }
+  const v = viewOf(chapterMenuView, chapterId);
+  if (!v) return;
   menuChapterId = chapterId;
-  const i = state.chapterOrder.indexOf(chapterId);
-  const last = state.chapterOrder.length - 1;
   openBoardSheet(`
     <div class="sheet-title">Chapter</div>
     <div class="bd-inline-form">
-      <input type="text" class="sheet-input" id="bdRenameChapter" value="${escapeHtml(chapter.name)}" placeholder="Chapter name">
+      <input type="text" class="sheet-input" id="bdRenameChapter" value="${escapeHtml(v.name)}" placeholder="Chapter name">
       <button class="sheet-btn" data-board-action="rename-chapter">Save</button>
     </div>
     <div class="sheet-options">
@@ -84,7 +88,7 @@ export function openChapterMenu(chapterId) {
       </div>
     </div>
     <div class="bd-sheet-label">Flows <span class="bd-label-note">ways through this chapter, e.g. Capture failed</span></div>
-    ${chapterFlows(chapterId, state).map(f => `
+    ${v.flows.map(f => `
     <div class="bd-inline-form bd-flow-row">
       <input type="text" class="sheet-input" data-flow-name="${f.id}" value="${escapeHtml(f.name)}" aria-label="Flow name">
       <button class="sheet-btn secondary" data-board-action="delete-flow" data-flow="${f.id}" aria-label="Delete flow">✕</button>
@@ -95,6 +99,7 @@ export function openChapterMenu(chapterId) {
     </div>
     <div class="bd-cell-hint">The chapter header gets a chip per flow; pick one to see just its slices, still left to right. Slices on no flow are the main line, in every flow.</div>
     <div class="sheet-options">
+      ${chapterShareOption(v)}
       <div class="sheet-option" data-board-action="save-reference">
         <div class="sheet-option-icon" style="background: var(--surface-hover);">📗</div>
         <div class="sheet-option-text">
@@ -107,8 +112,8 @@ export function openChapterMenu(chapterId) {
         <div class="sheet-option-text"><div class="sheet-option-title">Add a slice here</div></div>
       </div>
       <div class="bd-move-row">
-        <button class="sheet-btn secondary" data-board-action="move-chapter" data-to="${i - 1}" ${i === 0 ? 'disabled' : ''}>◀ Earlier</button>
-        <button class="sheet-btn secondary" data-board-action="move-chapter" data-to="${i + 1}" ${i === last ? 'disabled' : ''}>Later ▶</button>
+        <button class="sheet-btn secondary" data-board-action="move-chapter" data-to="${v.index - 1}" ${v.first ? 'disabled' : ''}>◀ Earlier</button>
+        <button class="sheet-btn secondary" data-board-action="move-chapter" data-to="${v.index + 1}" ${v.last ? 'disabled' : ''}>Later ▶</button>
       </div>
       <div class="sheet-option" data-board-action="delete-chapter" style="border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px;">
         <div class="sheet-option-icon" style="background: #c0392b;">🗑️</div>
@@ -137,39 +142,28 @@ function submitNewFlow() {
 
 // Which flow a slice belongs to (its chapter's main line, or one of its flows)
 export function openFlowPicker(sliceId) {
-  const state = projectState();
-  const slice = state.slices[sliceId];
-  if (!slice?.chapterId) return;
-  const current = sliceFlow(slice, state)?.id || null;
-  const flows = chapterFlows(slice.chapterId, state);
+  const v = viewOf(flowPickerView, sliceId);
+  if (!v) return;
   openBoardSheet(`
-    <div class="sheet-title">Flow <span class="bd-sheet-sub">for ${escapeHtml(slice.name || 'this slice')}</span></div>
+    <div class="sheet-title">Flow <span class="bd-sheet-sub">for ${escapeHtml(v.sliceName)}</span></div>
     <div class="sheet-options">
-      ${[null, ...flows.map(f => f.id)].map(id => `
-        <div class="sheet-option ${current === id ? 'selected' : ''}" data-board-action="set-flow" data-slice="${sliceId}" data-flow="${id || ''}">
-          <div class="sheet-option-icon" style="background: var(--surface-hover);">${current === id ? '✓' : id ? '↳' : '—'}</div>
-          <div class="sheet-option-text">
-            <div class="sheet-option-title">${id ? escapeHtml(state.flows[id].name) : 'Main line'}</div>
-            <div class="sheet-option-desc">${id ? 'Only when this flow is shown' : 'In every flow of the chapter'}</div>
-          </div>
-        </div>`).join('')}
+      ${v.options.map(o => flowOption(o, sliceId)).join('')}
     </div>
     <div class="bd-sheet-label">Or a new flow</div>
     <div class="bd-inline-form">
       <input type="text" class="sheet-input" id="bdSliceNewFlow" placeholder="e.g. Capture failed">
       <button class="sheet-btn" data-board-action="create-flow-for-slice" data-slice="${sliceId}">Add</button>
-    </div>`, flows.length ? null : 'bdSliceNewFlow');
+    </div>`, v.hasFlows ? null : 'bdSliceNewFlow');
   onEnter('bdSliceNewFlow', () => submitSliceFlow(sliceId));
 }
 
 function submitSliceFlow(sliceId) {
-  const state = projectState();
-  const slice = state.slices[sliceId];
+  const v = viewOf(flowPickerView, sliceId);
   const name = document.getElementById('bdSliceNewFlow')?.value.trim();
-  if (!slice?.chapterId || !name) return;
-  const flowId = createFlow(slice.chapterId, name);
+  if (!v || !name) return;
+  const flowId = createFlow(v.chapterId, name);
   setSliceFlow(sliceId, flowId);
-  showFlow(slice.chapterId, flowId);
+  showFlow(v.chapterId, flowId);
   hideAllSheets();
   render();
   scrollToSlice(sliceId);
@@ -194,6 +188,12 @@ export function onSheetAction(a, t) {
   }
   else if (a === 'create-chapter') submitNewChapter(t.dataset.slice || null);
   else if (a === 'create-flow') submitNewFlow();
+  else if (a === 'share-picture') {
+    // A chapter's menu (read-only or editing), or a slice's in a read-only book
+    const { chapter, slice } = t.dataset;
+    hideAllSheets();
+    setTimeout(() => openShareSheet(null, slice ? { sliceId: slice } : { chapterId: chapter }), 150);
+  }
   else if (a === 'save-reference') {
     const ref = saveReference(menuChapterId);
     hideAllSheets();
@@ -208,10 +208,10 @@ export function onSheetAction(a, t) {
   }
   else if (a === 'flow') openFlowPicker(t.dataset.slice);
   else if (a === 'set-flow') {
-    const slice = projectState().slices[t.dataset.slice];
+    const v = viewOf(flowPickerView, t.dataset.slice);
     setSliceFlow(t.dataset.slice, t.dataset.flow || null);
     // Show the flow it went to, so it doesn't vanish from the board
-    if (slice?.chapterId && t.dataset.flow) showFlow(slice.chapterId, t.dataset.flow);
+    if (v && t.dataset.flow) showFlow(v.chapterId, t.dataset.flow);
     hideAllSheets();
     render();
     scrollToSlice(t.dataset.slice);
@@ -226,8 +226,7 @@ export function onSheetAction(a, t) {
   }
   else if (a === 'delete-chapter') {
     if (!secondTap(t)) return true;
-    const chapter = projectState().chapters[menuChapterId];
-    if (chapter) {
+    if (viewOf(chapterMenuView, menuChapterId)) {
       deleteChapter(menuChapterId);
       hideAllSheets();
       render();

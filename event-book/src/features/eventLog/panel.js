@@ -11,6 +11,7 @@ import { kindOf } from '../testImport/spec.js';
 import { showToast } from '../../ui/toast.js';
 import { render } from '../../ui/feed.js';
 import { copyText } from '../../ui/clipboard.js';
+import { importDraftFile } from '../literature/draftFile.js';
 
 export function toggleEventLog() {
   document.getElementById('eventLog').classList.toggle('open');
@@ -89,6 +90,11 @@ export function exportModel({ history = true } = {}) {
 export function importModel(input) {
   const file = input.files[0];
   if (!file) return;
+  // A Markdown draft: a literature book of its own
+  if (input.files.length === 1 && /\.(md|markdown|txt)$/i.test(file.name)) {
+    importDraftFile(file).catch(() => showToast("Couldn't import that draft")).finally(() => { input.value = ''; });
+    return;
+  }
   // Several files, or ones that aren't an eventPAD model (test exports, a plan): Import Test Export
   if (input.files.length > 1 || !/\.json$/i.test(file.name) || /\.test\.json$|latest(-built)?\.json$|-built\.json$|slices\.json$/i.test(file.name)) {
     importFiles(input.files).finally(() => { input.value = ''; });

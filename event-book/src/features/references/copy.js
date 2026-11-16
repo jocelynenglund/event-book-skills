@@ -42,7 +42,8 @@ export function chapterEvents(state, chapterId, { target = null, name = null } =
     if (!same) {
       add(EventTypes.ElementCreated, { elementId: id, elementType: el.type, name: el.name });
       if (el.external) add(EventTypes.ElementExternalSet, { elementId: id, external: true });
-      if (el.table) add(EventTypes.ElementTableSet, { elementId: id, table: true });
+      if (el.table) add(EventTypes.ElementTableSet, { elementId: id, table: el.table });
+      if (el.published) add(EventTypes.ElementPublishedSet, { elementId: id, published: true, ...(el.to?.length ? { to: el.to } : {}) });
       if (el.todo) add(EventTypes.ElementTodoSet, { elementId: id, todo: true });
       if (el.list) add(EventTypes.ElementListSet, { elementId: id, list: true });
     }

@@ -5,44 +5,21 @@
 // only in the library), and Check out for a library book, which does all of that first.
 // ===========================================
 
-import { searchBooks } from './catalog.js';
+import { booksFound } from './booksFound.read.js';
+import { catalogPrompt } from './catalogPrompt.read.js';
+import { catalogHits, catalogPromptBox } from './catalog.parts.js';
 import { account, serverLibrary, serverIds, isKept, holderOf, download, checkOut } from '../sync/client.js';
 import { openModel } from '../../core/eventStore.js';
 import { showSheet, hideAllSheets } from '../../ui/sheets.js';
 import { showToast } from '../../ui/toast.js';
-import { escapeHtml } from '../board/view.js';
 
 let books = [];
-
-// The little computer (in the header, so folding a shelf never hides it): beige case, a green
-// screen with a blinking cursor, a keyboard in front
-export const terminalButton = () => `<button class="lb-terminal" data-library-action="catalog" aria-label="Look up a book (card catalog)" title="Look up a book (/)">
-  <svg viewBox="0 0 64 60" width="40" height="38" aria-hidden="true">
-    <rect x="6" y="2" width="52" height="40" rx="5" fill="#e3d6b8" stroke="#8a7550" stroke-width="1.5"/>
-    <rect x="12" y="7" width="40" height="27" rx="3" fill="#13261a" stroke="#5b4a2c" stroke-width="1"/>
-    <text x="16" y="19" font-family="monospace" font-size="7" font-weight="700" fill="#5cff8a">CATALOG</text>
-    <text x="16" y="29" font-family="monospace" font-size="8" font-weight="700" fill="#5cff8a">&gt;<tspan class="lb-term-cursor">_</tspan></text>
-    <rect x="22" y="42" width="20" height="5" fill="#cdbf9e" stroke="#8a7550" stroke-width="1"/>
-    <rect x="4" y="47" width="56" height="11" rx="2.5" fill="#e3d6b8" stroke="#8a7550" stroke-width="1.5"/>
-    <path d="M9 51h46M9 54.5h46" stroke="#a8946c" stroke-width="1" stroke-dasharray="3 1.5"/>
-  </svg>
-</button>`;
 
 function render(query) {
   const box = document.getElementById('catalogHits');
   if (!box) return;
-  const hits = searchBooks(books, query);
-  box.innerHTML = !query.trim() ? '<p class="cat-hint">TYPE A NAME, A CHAPTER OR A WORD FROM THE DESCRIPTION</p>'
-    : !hits.length ? '<p class="cat-hint">NO BOOK FOUND</p>'
-    : hits.map(b => {
-      const library = b.remote || isKept(b.id), mine = !b.remote && holderOf(b.id)?.you;
-      const act = (kind, label) => `<button class="cat-act ${kind}" data-cat-action="${kind}" data-model="${escapeHtml(b.id)}"${b.remote ? ' data-remote="1"' : ''}>${label}</button>`;
-      return `<div class="cat-hit" data-model="${escapeHtml(b.id)}">
-        <span class="cat-name">${escapeHtml(b.name)}</span>
-        <span class="cat-where">${escapeHtml(b.shelf)}${mine ? ' · checked out here' : ''}${b.slices != null ? ` · ${b.slices} ${b.slices === 1 ? 'slice' : 'slices'}` : ''}${b.why ? ` · chapter: ${escapeHtml(b.why)}` : ''}</span>
-        <span class="cat-acts">${act('open', b.remote ? 'Download &amp; open' : 'Open')}${library && !mine ? act('checkout', 'Check out') : ''}</span>
-      </div>`;
-    }).join('');
+  const library = Object.fromEntries(books.map(b => [b.id, { kept: isKept(b.id), mine: !!holderOf(b.id)?.you }]));
+  box.innerHTML = catalogHits(booksFound(books, query, library, new Date()));
 }
 
 // Open (downloading it first if it's not here); Check out does that and checks it out to this device
@@ -64,8 +41,7 @@ export async function openCatalog(local) {
   books = local;
   document.getElementById('boardSheetContent').innerHTML = `
     <div class="cat-screen">
-      <div class="cat-head">EVENT BOOK · CARD CATALOG</div>
-      <label class="cat-prompt"><span aria-hidden="true">&gt;</span><input id="catalogQuery" type="search" autocomplete="off" spellcheck="false" aria-label="Look up a book"></label>
+      ${catalogPromptBox(catalogPrompt())}
       <div class="cat-hits" id="catalogHits"></div>
     </div>`;
   showSheet('boardSheet');
@@ -84,7 +60,7 @@ export async function openCatalog(local) {
     try {
       const here = new Set(serverIds());
       const far = (await serverLibrary()).filter(m => !here.has(m.modelId))
-        .map(m => ({ id: m.modelId, name: m.name || 'Untitled model', description: '', chapters: [], shelf: 'Not here', remote: true }));
+        .map(m => ({ id: m.modelId, name: m.name || 'Untitled model', description: '', chapters: [], shelf: 'Not here', remote: true, updatedAt: m.updatedAt || null }));
       if (books === local) { books = [...local, ...far]; render(input.value); }
     } catch (e) { /* offline: this device's books only */ }
   }

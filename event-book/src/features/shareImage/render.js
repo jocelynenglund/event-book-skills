@@ -4,13 +4,9 @@
 // Workshop paper look: paper wall, tilted sticky notes, handwritten names.
 // ===========================================
 
-import { projectState, getBoardGroups, getTodoUpdates, getScenariosForSlice, givenEventsOf, sliceTitle } from '../../core/projections.js';
-import { typeLabels, elementLabel, propLabel } from '../../core/constants.js';
-import { laneOf, sliceActor, sliceProcessor, isTrigger } from '../board/command.js';
-import { fieldsFolded, foldedLabel } from '../board/foldedFields.js';
-import { latestUsage, sliceUsage, heatOf } from '../usage/rules.js';
-import { getEventStream } from '../../core/eventStore.js';
-import { sliceTypeLabels, laneLabels, noteTilt, isChapterFolded, firstAppearances, cardTags, applyFlows, otherFlowOutcome } from '../board/view.js';
+import { heatOf } from '../usage/rules.js';
+import { shotOf } from './shotOf.js';
+import { sliceTypeLabels, laneLabels, noteTilt } from '../board/view.js';
 
 export const DISPLAY = '"Fraunces", Georgia, serif';
 export const BODY = '"Atkinson Hyperlegible", system-ui, -apple-system, sans-serif';
@@ -36,7 +32,9 @@ export const notes = {
   // Events from another system
   external:  { fill: '#fde58a', text: '#3d3005' },
   // A legacy table read as events: a shadowy orange
-  table:     { fill: '#c99a6c', text: '#2a1606' }
+  table:     { fill: '#c99a6c', text: '#2a1606' },
+  // One of our events published to other systems: event orange, a dark right edge and a ↗ tab (legend only)
+  published: { fill: '#ffc58a', text: '#4a2306' }
 };
 
 export const themes = {
@@ -60,8 +58,10 @@ export const sliceAccent = { SC: '#5b9be6', SV: '#6cbf5a', AU: '#a58be0' };
 // AU's trigger event → processor arrow is drawn separately, around the command
 const flows = { SC: [null, 'down', 'down'], SV: [null, 'up', 'up'], AU: [null, 'down', null] };
 
-export const MAX_PIXELS = 16_000_000;
-export const MAX_SIDE = 16_000;
+// What phones can hold: a picture past about 16M pixels (or two of them, preview and full) crashed a
+// phone sharing a 255-slice book (2026-11-08). Bigger books come out a little less sharp, never blank.
+export const MAX_PIXELS = 8_000_000;
+export const MAX_SIDE = 8_192;
 
 const L = {
   pad: 56, labelW: 34, colW: 252, cardW: 208,
@@ -152,32 +152,30 @@ function arrow(ctx, x, y1, y2, color) {
   arrowHead(ctx, x, y2, 0, dir);
 }
 
-// Measure a card: returns { h, nameLines, propLines, tags, slim }
-// todo: { slim } for a to-do list's later appearance, { tags } for its updates
-function measureCard(ctx, el, showProps, todo = null) {
+// Measure a card (from the shot): returns { h, nameLines, propLines, tags, slim }
+function measureCard(ctx, card) {
   ctx.font = `700 ${L.nameSize}px ${DISPLAY}`;
-  if (todo?.slim) {
-    const lines = wrap(ctx, `☑ ${el.name} ↺`, L.cardW - 24, 2);
+  if (card.slim) {
+    const lines = wrap(ctx, `☑ ${card.name} ↺`, L.cardW - 24, 2);
     return { h: 16 + lines.length * L.nameLine + 12, nameLines: lines, propLines: [], tags: [], slim: true };
   }
-  const nameLines = wrap(ctx, el.name, L.cardW - 24, 3);
+  const nameLines = wrap(ctx, card.name, L.cardW - 24, 3);
   ctx.font = `500 ${L.propSize}px ${MONO}`;
-  const props = !showProps ? [] : el.properties?.length && fieldsFolded(el.id) ? [foldedLabel(el.properties.length)] : (el.properties || []).map(propLabel);
   // A long one (stuff[]{stuffId, name, price}) wraps after its commas instead of being cut
-  const fitted = props.flatMap(p => ctx.measureText(p).width > L.cardW - 24 ? wrap(ctx, p, L.cardW - 24, 4) : [p]);
+  const fitted = card.fields.flatMap(p => ctx.measureText(p).width > L.cardW - 24 ? wrap(ctx, p, L.cardW - 24, 4) : [p]);
   const propLines = fitted.length ? flowProps(ctx, fitted, L.cardW - 24) : [];
   // Tags wrap rather than truncate, so a to-do list's full name stays readable
   ctx.font = `700 11.5px ${MONO}`;
-  const tags = (todo?.tags || []).map(tag => ({ ...tag, lines: wrap(ctx, tag.text, L.cardW - 38, 4) }));
+  const tags = card.tags.map(tag => ({ ...tag, lines: wrap(ctx, tag.text, L.cardW - 38, 4) }));
   const tagsH = tags.reduce((sum, tag) => sum + tag.lines.length * 14 + 6, 0);
   const h = 11 + L.kindSize + 5 + nameLines.length * L.nameLine
     + (propLines.length ? 5 + propLines.length * L.propLine : 0)
     + (tags.length ? 8 + tagsH : 0) + 12;
-  return { h, nameLines, propLines, tags, slim: false, todo: !!todo?.todo, list: el.type === 'readModel' && !!el.list && !todo?.todo };
+  return { h, nameLines, propLines, tags, slim: false, todo: card.todo, list: card.list };
 }
 
-function drawCard(ctx, el, m, x, y, tilt, t, trigger = false) {
-  const n = (el.type === 'event' && el.table ? notes.table : el.type === 'event' && el.external ? notes.external : notes[el.type]) || notes.screen;
+function drawCard(ctx, card, m, x, y, tilt, t) {
+  const n = (card.kind === 'event' && card.table ? notes.table : card.kind === 'event' && card.external ? notes.external : notes[card.kind]) || notes.screen;
 
   // A to-do list seen again: a slim dashed reference, not a second full card
   if (m.slim) {
@@ -215,6 +213,16 @@ function drawCard(ctx, el, m, x, y, tilt, t, trigger = false) {
   ctx.fillStyle = n.fill;
   ctx.fill();
   ctx.restore();
+  // An integration event: a solid dark right edge with a ↗ tab
+  if (card.kind === 'event' && card.published) {
+    ctx.save();
+    roundRect(ctx, 0, 0, L.cardW, m.h, 3); ctx.clip();
+    ctx.fillStyle = '#3b2410'; ctx.fillRect(L.cardW - 5, 0, 5, m.h);
+    roundRect(ctx, L.cardW - 24, 7, 24, 20, 4); ctx.fill();
+    ctx.fillStyle = '#ffe3c2'; ctx.font = `700 14px ${MONO}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.fillText('\u2197', L.cardW - 12, 17.5);
+    ctx.restore();
+  }
   if (n.stroke) {
     roundRect(ctx, 0, 0, L.cardW, m.h, 3);
     ctx.strokeStyle = n.stroke;
@@ -243,7 +251,7 @@ function drawCard(ctx, el, m, x, y, tilt, t, trigger = false) {
   ctx.globalAlpha = 0.72;
   ctx.font = `700 ${L.kindSize}px ${MONO}`;
   ctx.letterSpacing = '1px';
-  ctx.fillText(((trigger ? '⚡ Trigger · ' : '') + (m.todo ? '☑ To-do list' : elementLabel(el))).toUpperCase(), 12, ty);
+  ctx.fillText(((card.trigger ? '⚡ Trigger · ' : '') + (m.todo ? '☑ To-do list' : card.label)).toUpperCase(), 12, ty);
   ctx.letterSpacing = '0px';
   ctx.globalAlpha = 1;
   ty += L.kindSize + 5;
@@ -293,26 +301,7 @@ function drawCard(ctx, el, m, x, y, tilt, t, trigger = false) {
 
 // ---------- Scenarios (Given / When / Then) ----------
 
-// A scenario's lines: keyword, the element it names (coloured swatch) or a note
-export function gwtLines(scn, state) {
-  const ref = (kw, id) => {
-    const el = state.elements[id];
-    return el ? { kw, text: el.name, type: el.type, external: !!el.external } : { kw, text: '(removed)' };
-  };
-  const lines = (scn.given || []).map((g, i) => ref(i ? 'And' : 'Given', g.elementId));
-  if (!lines.length) lines.push({ kw: 'Given', text: 'nothing happened yet' });
-  if (scn.when?.commandId) lines.push(ref('When', scn.when.commandId));
-  const then = scn.then;
-  if (then?.type === 'event') lines.push(ref('Then', then.eventId));
-  else if (then?.type === 'readModel') {
-    const line = ref('Then', then.readModelId);
-    if (then.rows?.length) line.text += ` · ${then.rows.length} ${then.rows.length === 1 ? 'row' : 'rows'}`;
-    lines.push(line);
-  }
-  else if (then?.type === 'rejection') lines.push({ kw: 'Then', text: `✕ ${then.reason || 'rejected'}`, reject: true });
-  else lines.push({ kw: 'Then', text: 'not set' });
-  return lines;
-}
+export { valuesText, gwtLines } from './lines.js';
 
 const GWT = { kwW: 50, swatch: 10, line: 17, nameLine: 19 };
 
@@ -357,17 +346,17 @@ function drawStrip(ctx, strip, x, y, t) {
     ctx.globalAlpha = 0.85;
     ctx.letterSpacing = '0px';
     ctx.font = `700 14px ${DISPLAY}`;
-    strip.givens.forEach((g, i) => ctx.fillText(wrap(ctx, g.element.name, sw - 34, 1)[0] || '', x + 12, sy + 32 + i * STRIP.line));
+    strip.givens.forEach((g, i) => ctx.fillText(wrap(ctx, g, sw - 34, 1)[0] || '', x + 12, sy + 32 + i * STRIP.line));
   }
   ctx.restore();
 }
 
-function measureGwt(ctx, scn, state) {
+function measureGwt(ctx, scn, showValues = false) {
   ctx.font = `700 15px ${BODY}`;
-  const nameLines = wrap(ctx, scn.name || 'Scenario', L.cardW - 24, 3);
+  const nameLines = wrap(ctx, scn.name, L.cardW - 24, 3);
   ctx.font = `500 13px ${BODY}`;
   const textW = L.cardW - 24 - GWT.kwW - GWT.swatch - 6;
-  const lines = gwtLines(scn, state).map(l => ({ ...l, wrapped: wrap(ctx, l.text, textW, 3) }));
+  const lines = scn.lines.map(l => ({ ...l, wrapped: wrap(ctx, l.text, textW, showValues ? 8 : 3) }));
   const h = 12 + nameLines.length * GWT.nameLine + 6
     + lines.reduce((s, l) => s + l.wrapped.length * GWT.line + 3, 0) + 9;
   return { h, nameLines, lines };
@@ -415,17 +404,15 @@ const SLIDE = { w: 1080, h: 1350, perSlide: 2 };
 
 // The model (or a chapter) cut into 4:5 slides of a couple of slices each, so a
 // feed shows them big instead of shrinking one long strip
-export function renderSlides({ chapterId = null, events = null, onlySlices = null, ...opts } = {}) {
-  const state = events ? projectState(events) : projectState();
-  const ids = scopedGroups(state, chapterId, !!onlySlices).flatMap(g => g.slices.map(s => s.id))
-    .filter(id => !onlySlices || onlySlices.includes(id));
+export function renderSlides(args = {}) {
+  const { shot = shotOf({ ...args, slides: true }), ...opts } = args;
+  const ids = shot.chapters.flatMap(g => g.slices.map(s => s.sliceId));
   const pages = [];
   for (let i = 0; i < ids.length; i += SLIDE.perSlide) pages.push(ids.slice(i, i + SLIDE.perSlide));
   const t = themes[opts.theme] || themes.light;
-  return pages.map((onlySlices, i) => {
+  return pages.map((page, i) => {
     const art = renderModelImage({
-      ...opts, events, chapterId, onlySlices, foldChapters: false,
-      showDescription: opts.showDescription && i === 0,
+      ...opts, shot: pageOf(shot, page, i === 0),
       pageNote: pages.length > 1 ? `${i + 1} / ${pages.length}` : ''
     });
     // Centre the picture on a paper (or chalkboard) slide
@@ -455,7 +442,7 @@ const spineBand = { SC: '#5b9be6', SV: '#6cbf5a', AU: '#a58be0' };
 
 // A folded chapter, as on the board: a paper book spine with gilt bands, its
 // name reading bottom to top, a coloured band per slice and the slice count
-function drawSpine(ctx, sp, x, top, bottom, state, t) {
+function drawSpine(ctx, sp, x, top, bottom, t) {
   const sx = x + 10, sw = L.spineW - 20, sy = top + 4, sh = bottom - top - 8;
   ctx.save();
   ctx.shadowColor = t.shadow; ctx.shadowBlur = 12; ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 4;
@@ -484,7 +471,7 @@ function drawSpine(ctx, sp, x, top, bottom, state, t) {
   [...sp.slices].reverse().forEach(s => {
     by -= 9;
     roundRect(ctx, sx + sw / 2 - 15, by, 30, 6, 2.5);
-    ctx.fillStyle = spineBand[sliceActor(s, state) === 'processor' ? 'AU' : s.type] || '#75675a';
+    ctx.fillStyle = spineBand[s.actor === 'processor' ? 'AU' : s.type] || '#75675a';
     ctx.fill();
   });
 
@@ -493,7 +480,7 @@ function drawSpine(ctx, sp, x, top, bottom, state, t) {
   let size = 30, lines;
   do {
     ctx.font = `700 ${size}px ${DISPLAY}`;
-    lines = wrap(ctx, sp.chapter.name, avail, size > 20 ? 1 : 2);
+    lines = wrap(ctx, sp.name, avail, size > 20 ? 1 : 2);
     size -= 1;
   } while ((lines.some(l => l.endsWith('…')) || ctx.measureText(lines[0]).width > avail) && size > 14);
   ctx.save();
@@ -506,61 +493,40 @@ function drawSpine(ctx, sp, x, top, bottom, state, t) {
   ctx.restore();
 }
 
-// foldChapters: chapters folded on the board show as book spines here too
-// The slices a picture covers: the whole model, or one chapter
-// raw: every slice, whatever flow is shown (when particular slices are asked for)
-function scopedGroups(state, chapterId, raw = false) {
-  const groups = raw ? getBoardGroups(state) : applyFlows(getBoardGroups(state), state);
-  // chapterId: one chapter, or several (an array)
-  const wanted = chapterId && [].concat(chapterId);
-  return groups.filter(g => g.slices.length && (!wanted || wanted.includes(g.chapter?.id)));
+// The shot cut to some of its slices (a slide); only the first slide carries the description
+function pageOf(shot, ids, first) {
+  return { ...shot, description: first ? shot.description : null,
+    chapters: shot.chapters.map(g => ({ ...g, slices: g.slices.filter(sl => ids.includes(sl.sliceId)) })).filter(g => g.slices.length) };
 }
 
-// chapterId: just that chapter. onlySlices: just these slice ids (a slide).
-// pageNote: e.g. "2 / 5", next to the credit.
-export function renderModelImage({ theme = 'light', showProps = true, foldChapters = true, showDescription = true, showScenarios = false, showSliceNotes = false, scale = 2, events = null, chapterId = null, onlySlices = null, pageNote = '' } = {}) {
+// shot: what to draw (ModelDetailShareShot); pageNote: e.g. "2 / 5", next to the credit.
+export function renderModelImage(args = {}) {
+  const { shot = shotOf(args), theme = 'light', pageNote = '', side = null } = args;
+  let scale = args.scale ?? 2;
   const t = themes[theme] || themes.light;
-  // The open model, or any model's events (a shared link's preview)
-  const state = events ? projectState(events) : projectState();
   // A book with usage: each slice's count beside its kind, and the window's total by the credit
-  const usage = latestUsage(events || getEventStream());
-  const used = sliceUsage(state, usage);
-  const usedMax = Math.max(0, ...Object.values(used));
-  // Empty chapters have nothing to show in a picture; one chapter is never folded
-  const groups = scopedGroups(state, chapterId, !!onlySlices)
-    .map(g => onlySlices ? { ...g, slices: g.slices.filter(s => onlySlices.includes(s.id)) } : g)
-    .filter(g => g.slices.length)
-    .map(g => ({ ...g, folded: !!(foldChapters && !chapterId && g.chapter && isChapterFolded(g.chapter.id)) }));
+  const usage = shot.usage;
+  const usedMax = usage ? usage.max : 0;
+  const groups = shot.chapters.map(g => ({ ...g, chapter: g.chapterId ? { id: g.chapterId, name: g.name } : null, flow: g.flow ? { name: g.flow } : null }));
   const slices = groups.filter(g => !g.folded).flatMap(g => g.slices);
   const chapterH = groups.some(g => g.chapter && !g.folded) ? 58 : 0;
 
   const measureCtx = document.createElement('canvas').getContext('2d');
 
   // Lay out columns and measure lanes so rows line up across slices
-  // To-do lists: full card where each first appears in the picture, slim after
-  const firstTodo = firstAppearances(groups.filter(g => !g.folded), state);
-  const todoFor = (el, slice) => {
-    if (el.type === 'readModel' && el.todo && firstTodo[el.id] !== slice.id) return { slim: true };
-    const tags = cardTags(el, slice, state);
-    return tags.length || (el.type === 'readModel' && el.todo) ? { tags, todo: el.type === 'readModel' && el.todo } : null;
-  };
-
   const columns = slices.map(slice => {
-    // Another flow's outcome (e.g. Capture failed on the main line) stays out of the picture
-    const els = slice.elements.map(id => state.elements[id]).filter(el => el && !(el.type === 'event' && otherFlowOutcome(el, slice, state)));
-    const lanes = [0, 1, 2].map(l => els
-      .filter(e => laneOf[e.type] === l)
-      .map(el => ({ el, m: measureCard(measureCtx, el, showProps, todoFor(el, slice)) })));
-    const gwt = showScenarios ? getScenariosForSlice(slice.id, state).map(scn => measureGwt(measureCtx, scn, state)) : [];
+    const lanes = slice.lanes.map(l => l.map(card => ({ card, m: measureCard(measureCtx, card) })));
+    const gwt = slice.scenarios.map(scn => measureGwt(measureCtx, scn, shot.values));
     // Not shown in full: the board's collapsed look (count chip + the given stack)
-    const count = showScenarios ? 0 : getScenariosForSlice(slice.id, state).length;
-    const givens = count ? givenEventsOf(slice.id, state) : [];
-    const strip = count ? { count, givens, h: stripH(count, givens.length) } : null;
+    const count = slice.scenarios.length ? 0 : slice.scenarioCount;
+    const strip = count ? { count, givens: slice.givens, h: stripH(count, slice.givens.length) } : null;
     return { slice, lanes, gwt, strip };
   });
-  // A fourth lane of scenario cards (or the collapsed strip), when there are some
+  // A fourth lane of scenario cards (or the collapsed strip), when there are some. One slice with its scenarios
+  // shown in full: they stand in a column beside the lanes instead (Jocelyn, 2026-11-07: "very vertical"); side: false keeps the lane
   const withGwt = columns.some(c => c.gwt.length || c.strip);
-  const laneIds = withGwt ? [0, 1, 2, 3] : [0, 1, 2];
+  const beside = side !== false && columns.length === 1 && columns[0].gwt.length > 0;
+  const laneIds = withGwt && !beside ? [0, 1, 2, 3] : [0, 1, 2];
 
   // Left-to-right placement: a slice column, or one narrow spine per folded chapter
   let runX = 0;
@@ -579,24 +545,52 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
     return L.cellPadY * 2 + cards.reduce((s, x) => s + x.m.h, 0) + L.cardGap * (cards.length - 1);
   })));
 
-  const width = Math.max(L.pad * 2 + L.labelW + gridW0, L.minW);
+  // The scenarios' column: its cards one under another, from the top of the lanes
+  const sideGap = 22, sideColGap = 18;
+  // Many scenarios flow into up to four columns (in reading order, top to bottom, then the next column):
+  // the fewest that keep them no taller than the lanes, so the picture stays near square
+  const lanesTotal0 = laneH.reduce((s, h) => s + h, 0);
+  const stackH = list => list.reduce((s, m) => s + m.h, 0) + L.cardGap * Math.max(list.length - 1, 0);
+  const splitInto = (list, k) => {
+    const target = stackH(list) / k, cols = [[]];
+    list.forEach(m => {
+      const cur = cols[cols.length - 1];
+      if (cur.length && cols.length < k && stackH([...cur, m]) > target + m.h / 2) cols.push([m]); else cur.push(m);
+    });
+    return cols;
+  };
+  let sideCols = [];
+  if (beside) {
+    const fits = Math.max(lanesTotal0, 700) - (L.cellPadY * 2 + 30);
+    for (let k = 1; k <= 4; k++) {
+      sideCols = splitInto(columns[0].gwt, k);
+      if (Math.max(...sideCols.map(stackH)) <= fits || k === Math.min(4, columns[0].gwt.length)) break;
+    }
+  }
+  const cardsW = sideCols.length * L.cardW + Math.max(sideCols.length - 1, 0) * sideColGap;
+  // At least the picture's least width (the title and the credit need it); the column takes what's left
+  const sideW = beside ? Math.max(cardsW + 2 * 22, L.minW - (L.pad * 2 + L.labelW + gridW0 + sideGap)) : 0;
+  const sideH = beside ? L.cellPadY + 30 + Math.max(...sideCols.map(stackH)) + L.cellPadY : 0;
+  const width = beside ? L.pad * 2 + L.labelW + gridW0 + sideGap + sideW : Math.max(L.pad * 2 + L.labelW + gridW0, L.minW);
   // The model's description under the title: a readable measure, up to 4 lines
   measureCtx.font = `500 19px ${BODY}`;
-  const descLines = showDescription && state.modelDescription
-    ? wrap(measureCtx, state.modelDescription, Math.min(width - L.pad * 2, 820), 4) : [];
+  const descLines = shot.description
+    ? wrap(measureCtx, shot.description, Math.min(width - L.pad * 2, 820), 4) : [];
   const descH = descLines.length ? descLines.length * 27 + 12 : 0;
   const headTop = L.pad + L.titleH + descH + chapterH;
   // Slice descriptions under their names, when asked for (up to 4 lines each)
   measureCtx.font = `500 14px ${BODY}`;
   columns.forEach(c => {
-    c.notes = showSliceNotes && c.slice.description ? wrap(measureCtx, c.slice.description, L.colW - 36, 4) : [];
+    c.notes = c.slice.note ? wrap(measureCtx, c.slice.note, L.colW - 36, 4) : [];
   });
   // The header grows to fit the tallest name + note (notes sit right under the name)
   measureCtx.font = `700 21px ${DISPLAY}`;
-  columns.forEach(c => { c.nameLines = wrap(measureCtx, sliceTitle(c.slice, state), L.colW - 36, 2).length; });
+  columns.forEach(c => { c.nameLines = wrap(measureCtx, c.slice.title, L.colW - 36, 2).length; });
   const headH = Math.max(L.headH, ...columns.map(c => c.notes.length ? 18 + c.nameLines * 24 + 8 + c.notes.length * 18 + 14 : 0));
   const lanesTop = headTop + headH;
-  const height = lanesTop + laneH.reduce((s, h) => s + h, 0) + 8 + L.footH + L.pad / 2;
+  const lanesTotal = laneH.reduce((s, h) => s + h, 0);
+  const bodyH = Math.max(lanesTotal, sideH);
+  const height = lanesTop + bodyH + 8 + L.footH + L.pad / 2;
 
   const canvas = document.createElement('canvas');
   // iPhone Safari won't draw a canvas past ~16.7M pixels (and long sides are
@@ -615,7 +609,7 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
   // Title
   ctx.fillStyle = t.text;
   ctx.font = `700 46px ${DISPLAY}`;
-  const [title] = wrap(ctx, state.modelName || 'Event model', width - L.pad * 2, 1);
+  const [title] = wrap(ctx, shot.title, width - L.pad * 2, 1);
   ctx.fillText(title, L.pad, L.pad - 6);
   if (descLines.length) {
     ctx.fillStyle = t.text;
@@ -628,7 +622,7 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
 
   // Lane bands + labels
   const gridX = L.pad + L.labelW;
-  const gridW = width - L.pad * 2 - L.labelW;
+  const gridW = beside ? gridW0 : width - L.pad * 2 - L.labelW;
   let y = lanesTop;
   const laneY = [];
   laneIds.forEach(l => {
@@ -659,7 +653,7 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
   }
 
   // Folded chapters: a book spine from the slice headers down through the lanes
-  spines.forEach(sp => drawSpine(ctx, sp, gridX + sp.x, headTop, lanesBottom, state, t));
+  spines.forEach(sp => drawSpine(ctx, sp, gridX + sp.x, headTop, lanesBottom, t));
 
   // Chapters: handwritten name on a bracket spanning the chapter's columns
   groups.forEach(({ chapter, folded, flow, x0: gx0, x1: gx1 }) => {
@@ -702,7 +696,7 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
     // Slice header: colour bar + kind kicker, handwritten name
     const hy = headTop;
     // Automation halves (a processor drives the view or change) share the automation accent
-    ctx.fillStyle = (sliceActor(col.slice, state) === 'processor' ? sliceAccent.AU : sliceAccent[col.slice.type]) || t.muted;
+    ctx.fillStyle = (col.slice.actor === 'processor' ? sliceAccent.AU : sliceAccent[col.slice.type]) || t.muted;
     roundRect(ctx, x + 18, hy + 3, 18, 5, 2.5);
     ctx.fill();
     ctx.fillStyle = t.muted;
@@ -712,9 +706,9 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
     ctx.fillText(kind, x + 42, hy);
     const kindW = ctx.measureText(kind).width;
     ctx.letterSpacing = '0px';
-    if (usage && col.slice.id in used) {
+    if (usage && col.slice.used !== null) {
       // "40 in 30d", shaded like the board's badge; "unused" dashed
-      const n = used[col.slice.id], days = usage.days || 30;
+      const n = col.slice.used, days = usage.days;
       const label = n ? `${n} in ${days}d` : 'unused';
       ctx.save();
       ctx.font = `700 10px ${MONO}`;
@@ -729,7 +723,7 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
     }
     ctx.fillStyle = t.text;
     ctx.font = `700 21px ${DISPLAY}`;
-    wrap(ctx, sliceTitle(col.slice, state), L.colW - 36, 2)
+    wrap(ctx, col.slice.title, L.colW - 36, 2)
       .forEach((line, li) => ctx.fillText(line, x + 18, hy + 18 + li * 24));
     if (col.notes.length) {
       ctx.fillStyle = t.muted;
@@ -738,25 +732,42 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
     }
 
     // Cards, vertically centred in each lane
-    const processor = sliceProcessor(col.slice, state);
     const placed = [0, 1, 2].map(l => {
       const cards = col.lanes[l];
       const total = cards.reduce((s, c) => s + c.m.h, 0) + L.cardGap * Math.max(cards.length - 1, 0);
       let cy = laneY[l] + (laneH[l] - total) / 2;
       return cards.map(c => {
-        const box = { x: cx - L.cardW / 2, y: cy, h: c.m.h, el: c.el };
-        const trigger = c.el.type === 'event' && processor && isTrigger(c.el.id, processor.id, state);
-        drawCard(ctx, c.el, c.m, box.x, box.y, noteTilt(col.slice.id + c.el.id), t, trigger);
+        const box = { x: cx - L.cardW / 2, y: cy, h: c.m.h, card: c.card };
+        drawCard(ctx, c.card, c.m, box.x, box.y, noteTilt(col.slice.sliceId + c.card.id), t);
         cy += c.m.h + L.cardGap;
         return box;
       });
     });
 
-    // Scenario cards stack from the top of their lane
-    if (withGwt) {
+    // Scenario cards: in their own column beside the lanes (one slice), else stacked from the top of their lane
+    if (beside) {
+      const sx = gridX + gridW0 + sideGap;
+      roundRect(ctx, sx, lanesTop + 4, sideW, Math.max(lanesTotal, sideH) - 8, 10);
+      ctx.fillStyle = t.lanes[3] || t.lanes[1];
+      ctx.fill();
+      ctx.fillStyle = t.muted;
+      ctx.font = `700 11px ${MONO}`;
+      ctx.letterSpacing = '1.3px';
+      ctx.fillText('SCENARIOS', sx + 22, lanesTop + 4 + L.cellPadY - 8);
+      ctx.letterSpacing = '0px';
+      const x0 = sx + (sideW - cardsW) / 2;
+      let i = 0;
+      sideCols.forEach((list, ci) => {
+        let gy = lanesTop + 4 + L.cellPadY + 22;
+        list.forEach(m => {
+          drawGwt(ctx, m, x0 + ci * (L.cardW + sideColGap), gy, noteTilt(col.slice.sliceId + 'gwt' + i++), t);
+          gy += m.h + L.cardGap;
+        });
+      });
+    } else if (withGwt) {
       let gy = laneY[3] + L.cellPadY;
       col.gwt.forEach((m, i) => {
-        drawGwt(ctx, m, cx - L.cardW / 2, gy, noteTilt(col.slice.id + 'gwt' + i), t);
+        drawGwt(ctx, m, cx - L.cardW / 2, gy, noteTilt(col.slice.sliceId + 'gwt' + i), t);
         gy += m.h + L.cardGap;
       });
       if (col.strip) drawStrip(ctx, col.strip, cx - L.cardW / 2, gy, t);
@@ -777,7 +788,7 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
     // Older single-column automations: an elbow from their first event up the
     // column's left edge into the processor. In a to-do view the "⚡ Trigger"
     // label on the event says it, so no extra arrow.
-    const proc = placed[0].find(b => b.el.type === 'processor');
+    const proc = placed[0].find(b => b.card.kind === 'processor');
     const triggers = proc && col.slice.type === 'AU' ? placed[2].slice(0, 1) : [];
     triggers.forEach((ev, i) => {
       const ex = ev.x - 12 - i * 6, ey = ev.y + Math.min(ev.h / 2, 26), py = proc.y + proc.h / 2;
@@ -795,11 +806,10 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
   });
 
   // Footer: legend, and the credit on the right
-  const fy = lanesBottom + 26;
+  const fy = lanesTop + bodyH + 26;
   // Only the kinds of sticky the picture has (yellow is explained only when there's some)
-  const pictured = new Set(slices.flatMap(s => s.elements.map(id => state.elements[id]).filter(Boolean)
-    .map(el => el.type === 'event' && el.external ? 'external' : el.type)));
-  const legend = [['command', 'Command'], ['event', 'Event'], ['external', 'External event'], ['readModel', 'Read model'], ['screen', 'Screen'], ['processor', 'Automation']]
+  const pictured = new Set(slices.flatMap(s => s.lanes.flat().map(c => c.kind === 'event' && c.external ? 'external' : c.kind === 'event' && c.published ? 'published' : c.kind)));
+  const legend = [['command', 'Command'], ['event', 'Event'], ['external', 'External event'], ['published', 'Integration event ↗'], ['readModel', 'Read model'], ['screen', 'Screen'], ['processor', 'Automation']]
     .filter(([type]) => pictured.has(type));
   let lx = L.pad;
   ctx.font = `600 14px ${BODY}`;
@@ -813,7 +823,7 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
     lx += 22 + ctx.measureText(label).width + 18;
   });
   // To-do lists in the picture: say what their tags mean
-  if (slices.some(s => s.elements.some(id => state.elements[id]?.todo))) {
+  if (slices.some(s => s.lanes.flat().some(c => c.todo))) {
     const key = '+ adds to a to-do list · ✓ ticks it off';
     ctx.fillStyle = t.muted;
     ctx.fillText(key, lx, fy);
@@ -821,7 +831,7 @@ export function renderModelImage({ theme = 'light', showProps = true, foldChapte
   }
   ctx.fillStyle = t.text;
   ctx.font = `700 14px ${MONO}`;
-  const usedNote = usage ? `Used: ${usage.total} events in ${usage.days || 30} days · ` : '';
+  const usedNote = usage ? `Used: ${usage.total} events in ${usage.days} days · ` : '';
   const credit = `${usedNote}${pageNote ? `Made with Event Book · ${pageNote}` : 'Made with Event Book'}`;
   const creditW = ctx.measureText(credit).width;
   if (lx + creditW + 12 <= width - L.pad) {

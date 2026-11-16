@@ -24,6 +24,31 @@ export function fieldsOf(slice, state) {
   return names;
 }
 
+// The integration events (ours, published to other systems) of a model by name: a contract. Their fields are what
+// other systems rely on, so a change to one is more than a field change.
+const publishedEvents = state => new Map(Object.values(state.elements || {})
+  .filter(e => e.type === 'event' && e.published && !e.external).map(e => [norm(e.name), e]));
+const eventsNamed = (state, key) => Object.values(state.elements || {}).filter(e => e.type === 'event' && norm(e.name) === key);
+const fieldNames = els => new Map(els.flatMap(e => (e.properties || []).map(p => [norm(p.name), p.name])));
+
+// The contract changes going from `from` to `to`: for every event published in either, fields lost or added, or the event
+// gone (removed or renamed). One line each: "Order Placed: lost size, tax; added currency" or "Order Placed: removed".
+export function contractChanges(from, to) {
+  const a = publishedEvents(from), b = publishedEvents(to);
+  const out = [];
+  [...new Set([...a.keys(), ...b.keys()])].forEach(key => {
+    const was = eventsNamed(from, key), now = eventsNamed(to, key);
+    const name = (a.get(key) || b.get(key)).name;
+    if (!was.length) return;                                   // new in `to`: nothing to break yet
+    if (!now.length) { out.push(`${name}: removed`); return; }
+    const had = fieldNames(was), has = fieldNames(now);
+    const lost = [...had].filter(([k]) => !has.has(k)).map(([, n]) => n);
+    const added = [...has].filter(([k]) => !had.has(k)).map(([, n]) => n);
+    if (lost.length || added.length) out.push(`${name}: ${[lost.length ? `lost ${lost.join(', ')}` : '', added.length ? `added ${added.join(', ')}` : ''].filter(Boolean).join('; ')}`);
+  });
+  return out;
+}
+
 // A scenario in words that can be compared: its Given events, When command, Then
 function shape(scn, state) {
   const name = id => state.elements[id]?.name || '';
@@ -134,7 +159,8 @@ export function compareModels(plan, built) {
   const rows = planSlices.map(p => {
     const pair = pairOf.get(p.id), maybe = maybes.get(p.id);
     const b = pair?.b;
-    const row = { key: sliceKey(p, plan), title: sliceTitle(p, plan), chapter: chapterName(p, plan), type: p.type, plan: p, built: b || null };
+    const row = { key: sliceKey(p, plan), title: sliceTitle(p, plan), chapter: chapterName(p, plan), type: p.type, plan: p, built: b || null,
+      waived: !!p.waived };  // nothing to test: no scenarios or spec expected, not a gap
     if (maybe) {
       return { ...row, built: maybe.b, status: 'maybe', ...none(), builtChapter: chapterName(maybe.b, built),
         renamed: { from: mainName(p, plan), to: mainName(maybe.b, built) }, otherShelf: other, otherSliceName: mainName(maybe.b, built) };
@@ -153,7 +179,9 @@ export function compareModels(plan, built) {
       return { name: x.name, mustHave: !!x.mustHave, tested: !!test && !notPassingYet, notPassingYet,
         mismatches: test && !notPassingYet ? mismatches(shape(x, plan), shape(test, built)) : [] };
     });
-    const extraTests = tests.filter(x => !matched.has(x.id)).map(x => x.name);
+    // A test whose name a planned scenario already has (the same name twice on a slice) is that scenario, not an extra
+    const matchedNames = new Set([...matched].map(id => norm(tests.find(t => t.id === id)?.name)));
+    const extraTests = tests.filter(x => !matched.has(x.id) && !matchedNames.has(norm(x.name))).map(x => x.name);
     const pf = fieldsOf(p, plan), bf = fieldsOf(b, built);
     // A plan with no fields for a slice hasn't decided them yet: only compare where it names some
     const fields = pf.size

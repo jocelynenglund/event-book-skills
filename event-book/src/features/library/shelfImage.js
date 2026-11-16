@@ -6,7 +6,24 @@
 
 import { readModelEvents } from '../../core/eventStore.js';
 import { projectState } from '../../core/projections.js';
-import { shelfBooks } from './books.js';
+import { bookSpecOf } from './books.js';
+import { shelfPicture } from '../shelfPicture/read.js';
+
+// What the picture says, from its view (Shelf Picture) alone: the plaque, the books, the counts, her
+// description, a build book's coverage (a small caption of its own), the credit
+const BLOCK_OF = { do: 'SC', see: 'SV', auto: 'AU' };
+const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 'S'}`;
+export function shelfParts(view) {
+  return {
+    plaque: view.title.toUpperCase(),
+    books: view.books.map(b => ({ title: b.title, key: b.key, slices: b.slices, blocks: b.kinds.map(k => BLOCK_OF[k]) })),
+    empty: view.books.length ? null : 'No slices yet',
+    counts: plural(view.slices, 'SLICE') + (view.chapters ? ` · ${plural(view.chapters, 'CHAPTER')}` : ''),
+    description: view.description,
+    coverage: view.coverage,
+    credit: 'Made with Event Book · eventbook.itsybit.se'
+  };
+}
 
 const SIZE = 1080;
 const M = 54;
@@ -109,10 +126,8 @@ function drawBook(ctx, b, x, base, s) {
 // The shelf picture for a model, as a canvas
 export async function renderShelfImage(modelId) {
   const { rail, bay, plank, icon } = await ready();
-  const state = projectState(readModelEvents(modelId));
-  const name = state.modelName || 'Untitled model';
-  const books = shelfBooks(state, modelId);
-  const sliceCount = Object.keys(state.slices).length;
+  const parts = shelfParts(shelfPicture(projectState(readModelEvents(modelId)), modelId));
+  const books = parts.books.map(bookSpecOf);
 
   const canvas = document.createElement('canvas');
   canvas.width = SIZE; canvas.height = SIZE;
@@ -131,10 +146,13 @@ export async function renderShelfImage(modelId) {
   // A big model's books go on several rows, as many as makes them biggest while it all fits.
   const SW = SIZE - 2 * M, k = SW / 1024;
   const railH = 108 * k, plankH = 35 * k;
-  // The text below gets its room first: the counts, the whole description (up to six lines), the footer
+  // The text below gets its room first: the counts, her description (up to four lines), a build book's
+  // coverage as a small caption (up to four), the footer
   ctx.font = '500 28px "Atkinson Hyperlegible", sans-serif';
-  const descLines = state.modelDescription ? wrap(ctx, state.modelDescription, SIZE - 2 * M, 6) : [];
-  const room = SIZE - (M + 120) - (30 + 40 + descLines.length * 38 + 70);
+  const descLines = parts.description ? wrap(ctx, parts.description, SIZE - 2 * M, 4) : [];
+  ctx.font = '500 19px "IBM Plex Mono", monospace';
+  const coverLines = parts.coverage ? wrap(ctx, parts.coverage, SIZE - 2 * M, 4) : [];
+  const room = SIZE - (M + 120) - (30 + 40 + descLines.length * 38 + (coverLines.length ? 12 + coverLines.length * 27 : 0) + 70);
   const rowWidth = SW * 0.84;
   const widthOf = row => row.reduce((t, b) => t + b.width + 4, 0);
   let layout = null;
@@ -178,9 +196,9 @@ export async function renderShelfImage(modelId) {
   let size = 30;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   do { ctx.font = `700 ${size}px "Courier Prime", "Courier New", monospace`; size--; }
-  while (ctx.measureText(name.toUpperCase()).width > lw - 24 && size > 12);
-  ctx.fillStyle = 'rgba(255, 248, 225, 0.6)'; ctx.fillText(name.toUpperCase(), lx + lw / 2, ly + lh / 2 + 1);
-  ctx.fillStyle = '#3b2a14'; ctx.fillText(name.toUpperCase(), lx + lw / 2, ly + lh / 2);
+  while (ctx.measureText(parts.plaque).width > lw - 24 && size > 12);
+  ctx.fillStyle = 'rgba(255, 248, 225, 0.6)'; ctx.fillText(parts.plaque, lx + lw / 2, ly + lh / 2 + 1);
+  ctx.fillStyle = '#3b2a14'; ctx.fillText(parts.plaque, lx + lw / 2, ly + lh / 2);
 
   // The books, standing on each row's plank
   if (books.length) {
@@ -191,22 +209,24 @@ export async function renderShelfImage(modelId) {
     });
   } else {
     ctx.font = '700 30px Fraunces, Georgia, serif'; ctx.fillStyle = '#e8d5b5';
-    ctx.fillText('No slices yet', M + SW / 2, top + railH + bayH / 2);
+    ctx.fillText(parts.empty, M + SW / 2, top + railH + bayH / 2);
   }
 
-  // Under the shelf: what's in it, the description, where it was made
+  // Under the shelf: what's in it, her description, a build book's coverage, where it was made
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   let y = top + shelfH + 30;
-  const chapters = state.chapterOrder.length;
   ctx.font = '700 22px "IBM Plex Mono", monospace'; ctx.fillStyle = MUTED;
-  ctx.fillText(`${sliceCount} ${sliceCount === 1 ? 'SLICE' : 'SLICES'}${chapters ? ` · ${chapters} ${chapters === 1 ? 'CHAPTER' : 'CHAPTERS'}` : ''}`, M, y);
+  ctx.fillText(parts.counts, M, y);
   y += 40;
-  if (state.modelDescription) {
-    ctx.font = '500 28px "Atkinson Hyperlegible", sans-serif'; ctx.fillStyle = INK;
-    descLines.forEach(line => { ctx.fillText(line, M, y); y += 38; });
+  ctx.font = '500 28px "Atkinson Hyperlegible", sans-serif'; ctx.fillStyle = INK;
+  descLines.forEach(line => { ctx.fillText(line, M, y); y += 38; });
+  if (coverLines.length) {
+    y += 12;
+    ctx.font = '500 19px "IBM Plex Mono", monospace'; ctx.fillStyle = MUTED;
+    coverLines.forEach(line => { ctx.fillText(line, M, y); y += 27; });
   }
   ctx.font = '700 22px "IBM Plex Mono", monospace'; ctx.fillStyle = INK; ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'right';
-  ctx.fillText('Made with Event Book · eventpad.itsybit.se', SIZE - M, SIZE - M + 10);
+  ctx.fillText(parts.credit, SIZE - M, SIZE - M + 10);
   return canvas;
 }

@@ -3,7 +3,6 @@
 // Shared by the library (HTML) and the shelf picture (canvas).
 // ===========================================
 
-import { getBoardGroups } from '../../core/projections.js';
 import { sliceActor } from '../board/command.js';
 
 // Cloth colours for the books, picked per chapter so a book keeps its colour
@@ -62,24 +61,20 @@ export function fitSpine(title, width, length, largest = 14) {
 // One book: its size (in CSS pixels), cloth, a block per slice (up to 12), and its
 // title fitted to the spine (font size and lines)
 export function bookSpec(title, slices, key, state) {
-  const [dark, light] = clothFor(key);
-  // Thicker for more slices, a little taller or shorter so the shelf looks lived in
-  const baseWidth = Math.min(30 + slices.length * 5, 64);
-  // ...and tall enough that the longest word of the title isn't cut
-  const longestWord = Math.max(...String(title).split(/\s+/).map(w => w.length));
-  const blockRows = Math.ceil(Math.min(slices.length, 12) / 3);
-  const height = Math.min(Math.max(112 + (hash(key, 17) % 4) * 9, Math.ceil(longestWord * 8.8) + blockRows * 7 + 44), 176);
   const blocks = slices.slice(0, 12).map(s => (sliceActor(s, state) === 'processor' ? 'AU' : s.type));
-  // The spine's room for the title: its height less padding and the slice blocks
-  const { size, lines, width } = fitSpine(title, baseWidth, height - 41 - blockRows * 7);
-  return { title, key, width, height, dark, light, blocks, titleSize: size, titleLines: lines };
+  return bookSpecOf({ title, key, slices: slices.length, blocks });
 }
 
-// The books on a model's shelf: one per chapter, or one for a model without chapters
-export function shelfBooks(state, modelId) {
-  const groups = getBoardGroups(state).filter(g => g.slices.length);
-  const sliceCount = groups.reduce((n, g) => n + g.slices.length, 0);
-  if (!sliceCount) return [];
-  if (!state.chapterOrder.length) return [bookSpec(state.modelName || 'Untitled model', groups[0].slices, modelId, state)];
-  return groups.map(g => bookSpec(g.chapter ? g.chapter.name : 'Loose slices', g.slices, modelId + (g.chapter?.id || 'loose'), state));
+// The same from what a view says of the book: its title, key, slice count and blocks (SC | SV | AU)
+export function bookSpecOf({ title, key, slices, blocks }) {
+  const [dark, light] = clothFor(key);
+  // Thicker for more slices, a little taller or shorter so the shelf looks lived in
+  const baseWidth = Math.min(30 + slices * 5, 64);
+  // ...and tall enough that the longest word of the title isn't cut
+  const longestWord = Math.max(...String(title).split(/\s+/).map(w => w.length));
+  const blockRows = Math.ceil(Math.min(slices, 12) / 3);
+  const height = Math.min(Math.max(112 + (hash(key, 17) % 4) * 9, Math.ceil(longestWord * 8.8) + blockRows * 7 + 44), 176);
+  // The spine's room for the title: its height less padding and the slice blocks
+  const { size, lines, width } = fitSpine(title, baseWidth, height - 41 - blockRows * 7);
+  return { title, key, width, height, dark, light, blocks: blocks.slice(0, 12), titleSize: size, titleLines: lines };
 }

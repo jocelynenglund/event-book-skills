@@ -2,15 +2,19 @@
 // BOARD SHEETS - Pickers: the events that update a to-do list, a processor's reads & triggers
 // ===========================================
 
-import { projectState, getTodoUpdates } from '../../../core/projections.js';
-import { externalAttr, byName } from '../../../core/constants.js';
+import { projectState } from '../../../core/projections.js';
 import { hideAllSheets } from '../../../ui/sheets.js';
 import { showToast } from '../../../ui/toast.js';
 import { render } from '../../../ui/feed.js';
-import { setUpdatedBy, setTrigger, setReads, readsModel, isTrigger, addProcessorReadModel, newId } from '../command.js';
+import { setUpdatedBy, setTrigger, setReads, addProcessorReadModel, newId } from '../command.js';
 import { appendEvent, EventTypes } from '../../../core/eventStore.js';
 import { escapeHtml } from '../view.js';
 import { onEnter, openBoardSheet, scrollToSlice, searchKey } from './shared.js';
+import { updatedByView, processorInputsView, readModelNamed } from './read.js';
+import { pickChip } from './parts.js';
+
+// The book, through one sheet's view: the sheets read nothing of it but what their view holds
+const viewOf = (view, ...args) => view(projectState(), ...args);
 
 // ---------- To-do list: which events update it ----------
 
@@ -18,18 +22,14 @@ let updatedByRm = null;
 
 // Every event in the model, ticked if it updates this read model; tick to link
 export function openUpdatedByPicker(readModelId) {
-  const state = projectState();
-  const rm = state.elements[readModelId];
-  if (!rm) return;
+  const v = viewOf(updatedByView, readModelId);
+  if (!v) return;
   updatedByRm = readModelId;
-  const linked = new Set(getTodoUpdates(readModelId, state).map(u => u.event.id));
-  const events = Object.values(state.elements).filter(e => e.type === 'event')
-    .sort(byName);
+  const events = v.events;
   openBoardSheet(`
-    <div class="sheet-title">Updated by <span class="bd-sheet-sub">${escapeHtml(rm.name)}</span></div>
+    <div class="sheet-title">Updated by <span class="bd-sheet-sub">${escapeHtml(v.name)}</span></div>
     <input type="text" class="sheet-input" id="bdUpdatedSearch" placeholder="Search events" autocomplete="off">
-    ${pickList('bdUpdatedChips', events.map(ev => `
-        <button class="bd-chip ${linked.has(ev.id) ? 'linked' : ''}" data-type="event"${externalAttr(ev)} data-board-action="toggle-updated-by" data-el="${ev.id}" data-key="${escapeHtml(searchKey(ev.name))}">${linked.has(ev.id) ? '✓ ' : ''}${escapeHtml(ev.name)}</button>`), events.filter(e => linked.has(e.id)).length)}
+    ${pickList('bdUpdatedChips', events.map(ev => pickChip(ev, 'toggle-updated-by')), events.filter(e => e.linked).length)}
     <div class="bd-cell-hint">Ticked events update this list. On the card, tap a tag to switch between + adds and ✓ completes.</div>
     <button class="sheet-btn" data-board-action="close">Done</button>`);
   searchList('bdUpdatedSearch', 'bdUpdatedChips');
@@ -60,24 +60,18 @@ let inputsSlice = null;
 
 // sliceId: the column the processor was tapped in, where a new read model's view goes
 export function openProcessorInputs(processorId, sliceId = inputsSlice) {
-  const state = projectState();
-  const proc = state.elements[processorId];
-  if (!proc) return;
+  const v = viewOf(processorInputsView, processorId, sliceId);
+  if (!v) return;
   inputsProc = processorId;
-  inputsSlice = sliceId && state.slices[sliceId] ? sliceId : null;
-  const triggered = id => isTrigger(id, processorId, state);
-  const models = Object.values(state.elements).filter(e => e.type === 'readModel')
-    .sort(byName);
-  const events = Object.values(state.elements).filter(e => e.type === 'event').sort(byName);
-  const chip = (e, action, linked) => `
-    <button class="bd-chip ${linked ? 'linked' : ''}" data-type="${e.type}"${externalAttr(e)} data-board-action="${action}" data-el="${e.id}" data-key="${escapeHtml(searchKey(e.name))}" data-name="${escapeHtml(e.name)}">${linked ? '✓ ' : ''}${e.todo ? '☑ ' : ''}${escapeHtml(e.name)}</button>`;
-  const reads = models.filter(m => readsModel(processorId, m.id, state)).length;
-  const triggers = events.filter(e => triggered(e.id)).length;
+  inputsSlice = v.sliceId;
+  const models = v.readModels, events = v.events;
+  const reads = models.filter(m => m.linked).length;
+  const triggers = events.filter(e => e.linked).length;
   openBoardSheet(`
-    <div class="sheet-title">What it uses <span class="bd-sheet-sub">${escapeHtml(proc.name)}</span></div>
+    <div class="sheet-title">What it uses <span class="bd-sheet-sub">${escapeHtml(v.name)}</span></div>
     <div class="bd-sheet-label">Reads</div>
     ${models.length > 8 ? `<input type="text" class="sheet-input" id="bdReadsSearch" placeholder="Search read models" autocomplete="off">` : ''}
-    ${pickList('bdReadsChips', models.map(m => chip(m, 'toggle-reads', readsModel(processorId, m.id, state))), reads)}
+    ${pickList('bdReadsChips', models.map(m => pickChip(m, 'toggle-reads')), reads)}
     <div class="bd-inline-form">
       <input type="text" class="sheet-input" id="bdNewReadModel" placeholder="New read model, e.g. Amount to charge" autocomplete="off">
       <button class="sheet-btn" data-board-action="new-read-model">Add</button>
@@ -85,7 +79,7 @@ export function openProcessorInputs(processorId, sliceId = inputsSlice) {
     <div class="bd-cell-hint">${inputsSlice ? 'A new one gets its own state view on the left: add the events that build it there.' : 'Give a new read model its own state view to show the events that build it.'}</div>
     <div class="bd-sheet-label">⚡ Triggered by</div>
     ${events.length > 8 ? `<input type="text" class="sheet-input" id="bdTriggerSearch" placeholder="Search events" autocomplete="off">` : ''}
-    ${pickList('bdTriggerChips', events.map(e => chip(e, 'toggle-trigger', triggered(e.id))), triggers)}
+    ${pickList('bdTriggerChips', events.map(e => pickChip(e, 'toggle-trigger')), triggers)}
     <button class="sheet-btn" data-board-action="close">Done</button>`);
   onEnter('bdNewReadModel', submitNewReadModel);
   searchList('bdTriggerSearch', 'bdTriggerChips');
@@ -95,11 +89,10 @@ export function openProcessorInputs(processorId, sliceId = inputsSlice) {
 function submitNewReadModel() {
   const name = document.getElementById('bdNewReadModel')?.value.trim();
   if (!name) { showToast('Name the read model'); return; }
-  const state = projectState();
   // Typing an existing read model's name links that one
-  const rm = Object.values(state.elements).find(e => e.type === 'readModel' && searchKey(e.name) === searchKey(name));
+  const rm = viewOf(readModelNamed, name);
   if (rm) {
-    setReads(inputsProc, rm.id, true);
+    setReads(inputsProc, rm, true);
     render();
     openProcessorInputs(inputsProc);
     return;
@@ -136,7 +129,7 @@ export function onSheetAction(a, t) {
     const on = !t.classList.contains('linked');
     setUpdatedBy(t.dataset.el, updatedByRm, on);
     t.classList.toggle('linked', on);
-    t.textContent = (on ? '✓ ' : '') + projectState().elements[t.dataset.el].name;
+    t.textContent = (on ? '✓ ' : '') + t.dataset.name;
     render();
   }
   else return false;

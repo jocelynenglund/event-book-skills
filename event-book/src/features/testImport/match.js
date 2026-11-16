@@ -29,9 +29,16 @@ export function importMatch(imported, shelves) {
   const built = st => !!st.modelSource?.commit;
   const byName = () => hit(name && others.find(s => norm(s.state.modelName) === name && built(s.state) === built(state)), 'name');
   // A build (from the tests) is first the app's build book, then a shelf named like it
-  const byApp = () => state.modelSource?.commit
-    ? hit(others.find(s => buildBookApp(s.state.modelName || '') && ((repo && repoOf(s.state) === repo) || (app && norm(buildBookApp(s.state.modelName)) === app))), 'app')
-    : null;
+  // The app's own build book first; the repo only when it has one build book (one repo can hold
+  // several apps' books, e.g. count-me-in-api and count-me-in-web)
+  const byApp = () => {
+    if (!state.modelSource?.commit) return null;
+    const books = others.filter(s => buildBookApp(s.state.modelName || ''));
+    const named = app && books.find(s => norm(buildBookApp(s.state.modelName)) === app);
+    if (named) return hit(named, 'app');
+    const sameRepo = repo ? books.filter(s => repoOf(s.state) === repo) : [];
+    return sameRepo.length === 1 ? hit(sameRepo[0], 'app') : null;
+  };
   return byId() || byApp() || byName() || null;
 }
 

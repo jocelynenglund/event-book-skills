@@ -1,8 +1,8 @@
 // ===========================================
 // LIBRARY - The card catalog: look a book up by what it's called, what it's about, or a chapter
-// Pure. books: [{ id, name, description, chapters: [name], shelf, slices, remote? }] → the ones
+// Pure. books: [{ id, name, description, tags: [], chapters: [name], shelf, slices, remote? }] → the ones
 // every word of the query is found in, best first: the name starting with it, then the name
-// holding it, then a chapter, then the description; alphabetical within each.
+// holding it, then a tag, then a chapter, then the description; alphabetical within each.
 // ===========================================
 
 const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -13,11 +13,11 @@ export function searchBooks(books, query, { limit = 30 } = {}) {
   if (!words.length) return [];
   const scored = [];
   for (const b of books) {
-    const name = fold(b.name), chapters = (b.chapters || []).map(fold), desc = fold(b.description);
+    const name = fold(b.name), chapters = (b.chapters || []).map(fold), desc = fold(b.description), tags = (b.tags || []).map(fold);
     let score = 0, ok = true;
     for (const w of words) {
       const s = name.split(/[^a-z0-9]+/).some(t => t.startsWith(w)) ? (name.startsWith(w) ? 4 : 3)
-        : name.includes(w) ? 2 : chapters.some(c => c.includes(w)) ? 1 : desc.includes(w) ? 0.5 : 0;
+        : name.includes(w) ? 2 : tags.some(t => t.includes(w)) ? 1.5 : chapters.some(c => c.includes(w)) ? 1 : desc.includes(w) ? 0.5 : 0;
       if (!s) { ok = false; break; }
       score += s;
     }

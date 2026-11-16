@@ -4,8 +4,10 @@
 
 import { appendEvent, EventTypes } from '../../core/eventStore.js';
 import { projectState, getOrderedSlices } from '../../core/projections.js';
+import { normaliseTags } from '../../core/tags.js';
 // Refined slices (and the rule that an edit clears refined and built) load with the board's commands
 export { markSliceRefined, clearSliceRefined } from '../sliceRefined/command.js';
+export { waiveScenarios, liftScenarioWaiver } from '../scenarioWaiver/command.js';
 
 // Lane a type lives in: 0 = UI / automation, 1 = commands & views, 2 = events
 export const laneOf = {
@@ -164,13 +166,29 @@ export function nameModel(name) {
 }
 
 // Built from a codebase: which repo and commit, so code and test locations can link there
-export function setModelSource(repo, commit, { createdAt = null, build = null } = {}) {
+// description: what the build says about itself; the preface (describeModel) is the person's own
+export function setModelSource(repo, commit, { createdAt = null, build = null, description = null } = {}) {
   appendEvent(EventTypes.ModelSourceSet, { repo: repo || null, commit: commit || null,
-    ...(createdAt ? { createdAt } : {}), ...(build ? { build: String(build) } : {}) });
+    ...(createdAt ? { createdAt } : {}), ...(build ? { build: String(build) } : {}), ...(description ? { description } : {}) });
 }
 
 export function describeModel(description) {
   appendEvent(EventTypes.ModelDescribed, { description });
+}
+
+// The book's preface, its own text (why it is being written); nothing when it comes to the same
+export function writePreface(preface) {
+  const next = String(preface ?? '').trim();
+  if (next === (projectState().preface || '')) return;
+  appendEvent(EventTypes.BookPrefaceWritten, { preface: next });
+}
+
+// The book's whole set of tags (leave one out to remove it); nothing when it comes to the same set
+export function tagBook(tags) {
+  const next = normaliseTags(tags);
+  const now = projectState().tags || [];
+  if (next.length === now.length && next.every((t, i) => t === now[i])) return;
+  appendEvent(EventTypes.BookTagged, { tags: next });
 }
 
 export function removeFromSlice(sliceId, elementId) {
@@ -275,6 +293,25 @@ export function unlinkProcessor(processorId) {
 
 export function setTodo(readModelId, todo) {
   appendEvent(EventTypes.ElementTodoSet, { elementId: readModelId, todo });
+}
+
+// ---------- Integration events (our events published to other systems) ----------
+
+// Publish an event to other systems (`to`: who consumes it), or stop. Only an event of ours: not another type,
+// not an external one. Nothing is recorded when nothing would change.
+export function setPublished(elementId, published, to = []) {
+  const el = projectState().elements[elementId];
+  if (!el || el.type !== 'event') return;
+  if (published && el.external) return;
+  const names = (to || []).map(n => String(n).trim()).filter(Boolean);
+  if (!published) {
+    if (!el.published) return;
+    appendEvent(EventTypes.ElementPublishedSet, { elementId, published: false });
+    return;
+  }
+  const same = el.published && (el.to || []).join('\u0000') === names.join('\u0000');
+  if (same) return;
+  appendEvent(EventTypes.ElementPublishedSet, { elementId, published: true, ...(names.length ? { to: names } : {}) });
 }
 
 // Link or unlink an event as updating a read model, without placing it in a slice

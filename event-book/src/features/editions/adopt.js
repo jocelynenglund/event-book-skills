@@ -39,6 +39,7 @@ export function adoptBuiltContent(planSliceId, builtState, builtSliceId) {
     if (!same) {
       appendEvent(T.ElementCreated, { elementId: id, elementType: el.type, name: el.name });
       if (el.external) appendEvent(T.ElementExternalSet, { elementId: id, external: true });
+      if (el.published) appendEvent(T.ElementPublishedSet, { elementId: id, published: true, ...(el.to?.length ? { to: el.to } : {}) });
       if (el.todo) appendEvent(T.ElementTodoSet, { elementId: id, todo: true });
       if (el.list) appendEvent(T.ElementListSet, { elementId: id, list: true });
     }

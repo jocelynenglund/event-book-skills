@@ -8,8 +8,10 @@
 
 export function buildFromSpec(spec, { es, c, sc }) {
   c.nameModel(spec.name);
-  if (spec.description) c.describeModel(spec.description);
-  if (spec.source && c.setModelSource) c.setModelSource(spec.source.repo, spec.source.commit, { createdAt: spec.source.createdAt, build: spec.source.build });
+  // Built from code, the file's description is the build's (with its source); the preface stays the person's
+  const fromCode = spec.source && c.setModelSource;
+  if (spec.description && !fromCode) c.describeModel(spec.description);
+  if (fromCode) c.setModelSource(spec.source.repo, spec.source.commit, { createdAt: spec.source.createdAt, build: spec.source.build, description: spec.description || null });
 
   const ids = new Map();                          // "type|name" → element id: one sticky per name
   // An event the file says is external (another system's) or a legacy table: marked on its sticky
@@ -47,6 +49,7 @@ export function buildFromSpec(spec, { es, c, sc }) {
       let sliceId;
       if (s.kind === 'SV') {
         sliceId = c.createSlice('SV', null, { chapterId });
+        if (s.screen) place(sliceId, 'screen', s.screen, []);
         place(sliceId, 'readModel', s.readModel, s.fields);
         s.events.forEach(e => ev(e) && place(sliceId, 'event', ev(e).label, ev(e).fields));
       } else if (s.kind === 'AU') {

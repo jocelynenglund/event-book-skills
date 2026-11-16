@@ -115,12 +115,12 @@ export function whenCommandChoice(when) {
 
 // Then, for a change: an event with its values, or a rejection with its reason (then: Scenario Editor Choices' then)
 export function thenOutcomeChoice(then) {
-  const isRejection = then.kind === 'rejection';
+  const isRejection = then.kind === 'rejection', isNothing = then.kind === 'nothing', isEvent = !isRejection && !isNothing;
   return `
       <div data-component="Then outcome choice" data-key="then">
       <div class="then-type-toggle">
-        <label class="radio-item ${isRejection ? '' : 'selected'}">
-          <input type="radio" name="thenType" value="event" ${isRejection ? '' : 'checked'}
+        <label class="radio-item ${isEvent ? 'selected' : ''}">
+          <input type="radio" name="thenType" value="event" ${isEvent ? 'checked' : ''}
                  onchange="window.EventPad.selectThenType('event')">
           <span>✅ Event</span>
         </label>
@@ -129,9 +129,14 @@ export function thenOutcomeChoice(then) {
                  onchange="window.EventPad.selectThenType('rejection')">
           <span>❌ Rejection</span>
         </label>
+        <label class="radio-item ${isNothing ? 'selected' : ''}">
+          <input type="radio" name="thenType" value="nothing" ${isNothing ? 'checked' : ''}
+                 onchange="window.EventPad.selectThenType('nothing')">
+          <span>⏸ Nothing</span>
+        </label>
       </div>
 
-      <div id="thenEventSection" style="${isRejection ? 'display:none' : ''}">
+      <div id="thenEventSection" style="${isEvent ? '' : 'display:none'}">
         <select class="sheet-input" id="thenEventSelect" style="padding: 12px; margin-top: 12px;"
                 onchange="window.EventPad.selectThenEvent(this.value)">
           <option value="">Select event...</option>
@@ -149,6 +154,12 @@ export function thenOutcomeChoice(then) {
       <div id="thenRejectionSection" style="${isRejection ? '' : 'display:none'}">
         <input type="text" class="sheet-input" id="rejectionReasonInput"
                placeholder="Rejection reason..." value="${escapeHtml(then.reason)}"
+               style="margin-top: 12px;">
+      </div>
+
+      <div id="thenNothingSection" style="${isNothing ? '' : 'display:none'}">
+        <input type="text" class="sheet-input" id="nothingReasonInput"
+               placeholder="Accepted, but nothing changes: why?" value="${escapeHtml(then.nothingReason || '')}"
                style="margin-top: 12px;">
       </div>
       </div>

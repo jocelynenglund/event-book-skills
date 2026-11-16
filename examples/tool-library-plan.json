@@ -618,6 +618,47 @@
               "then": {
                 "rejected": "You already have this tool"
               }
+            },
+            {
+              "name": "Reserving the same tool twice changes nothing",
+              "mustHave": true,
+              "given": [
+                {
+                  "event": "Tool Added",
+                  "values": {
+                    "toolId": "t1",
+                    "name": "Drill"
+                  }
+                },
+                {
+                  "event": "Tool Borrowed",
+                  "values": {
+                    "loanId": "l1",
+                    "memberId": "m1",
+                    "toolId": "t1",
+                    "borrowedOn": "2026-11-01",
+                    "dueOn": "2026-11-08"
+                  }
+                },
+                {
+                  "event": "Tool Reserved",
+                  "values": {
+                    "reservationId": "r1",
+                    "memberId": "m2",
+                    "toolId": "t1"
+                  }
+                }
+              ],
+              "when": {
+                "values": {
+                  "reservationId": "r2",
+                  "memberId": "m2",
+                  "toolId": "t1"
+                }
+              },
+              "then": {
+                "nothing": "The member is already in the queue for this tool"
+              }
             }
           ]
         },
@@ -745,6 +786,46 @@
                   "memberId": "m2",
                   "reservationId": "r1"
                 }
+              }
+            },
+            {
+              "name": "A returned tool nobody reserved just goes back on the shelf",
+              "mustHave": true,
+              "given": [
+                {
+                  "event": "Tool Added",
+                  "values": {
+                    "toolId": "t1",
+                    "name": "Drill"
+                  }
+                },
+                {
+                  "event": "Tool Borrowed",
+                  "values": {
+                    "loanId": "l1",
+                    "memberId": "m1",
+                    "toolId": "t1",
+                    "borrowedOn": "2026-11-01",
+                    "dueOn": "2026-11-08"
+                  }
+                },
+                {
+                  "event": "Tool Returned",
+                  "values": {
+                    "loanId": "l1",
+                    "memberId": "m1",
+                    "toolId": "t1",
+                    "returnedOn": "2026-11-07"
+                  }
+                }
+              ],
+              "when": {
+                "values": {
+                  "toolId": "t1"
+                }
+              },
+              "then": {
+                "nothing": "Nobody is waiting for the tool"
               }
             }
           ]
@@ -918,6 +999,47 @@
               "then": {
                 "rejected": "No such loan"
               }
+            },
+            {
+              "name": "Returning a tool twice changes nothing",
+              "mustHave": true,
+              "given": [
+                {
+                  "event": "Tool Added",
+                  "values": {
+                    "toolId": "t1",
+                    "name": "Drill"
+                  }
+                },
+                {
+                  "event": "Tool Borrowed",
+                  "values": {
+                    "loanId": "l1",
+                    "memberId": "m1",
+                    "toolId": "t1",
+                    "borrowedOn": "2026-11-01",
+                    "dueOn": "2026-11-08"
+                  }
+                },
+                {
+                  "event": "Tool Returned",
+                  "values": {
+                    "loanId": "l1",
+                    "memberId": "m1",
+                    "toolId": "t1",
+                    "returnedOn": "2026-11-07"
+                  }
+                }
+              ],
+              "when": {
+                "values": {
+                  "loanId": "l1",
+                  "returnedOn": "2026-11-07"
+                }
+              },
+              "then": {
+                "nothing": "The loan is already returned"
+              }
             }
           ]
         },
@@ -967,6 +1089,79 @@
                   "dueOn": "2026-11-08",
                   "daysLate": 1
                 }
+              }
+            },
+            {
+              "name": "A loan not yet due is not marked",
+              "mustHave": true,
+              "given": [
+                {
+                  "event": "Tool Added",
+                  "values": {
+                    "toolId": "t1",
+                    "name": "Drill"
+                  }
+                },
+                {
+                  "event": "Tool Borrowed",
+                  "values": {
+                    "loanId": "l1",
+                    "memberId": "m1",
+                    "toolId": "t1",
+                    "borrowedOn": "2026-11-01",
+                    "dueOn": "2026-11-08"
+                  }
+                }
+              ],
+              "when": {
+                "values": {
+                  "loanId": "l1",
+                  "today": "2026-11-08"
+                }
+              },
+              "then": {
+                "nothing": "The loan is not past its due date"
+              }
+            },
+            {
+              "name": "A loan already returned is not marked",
+              "mustHave": true,
+              "given": [
+                {
+                  "event": "Tool Added",
+                  "values": {
+                    "toolId": "t1",
+                    "name": "Drill"
+                  }
+                },
+                {
+                  "event": "Tool Borrowed",
+                  "values": {
+                    "loanId": "l1",
+                    "memberId": "m1",
+                    "toolId": "t1",
+                    "borrowedOn": "2026-11-01",
+                    "dueOn": "2026-11-08"
+                  }
+                },
+                {
+                  "event": "Tool Returned",
+                  "values": {
+                    "loanId": "l1",
+                    "memberId": "m1",
+                    "toolId": "t1",
+                    "returnedOn": "2026-11-07"
+                  }
+                }
+              ],
+              "when": {
+                "values": {
+                  "loanId": "l1",
+                  "today": "2026-11-09"
+                }
+              },
+              "then": {
+                "nothing": "The loan is already returned"
               }
             }
           ]

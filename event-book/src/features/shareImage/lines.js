@@ -26,6 +26,7 @@ export function gwtLines(scn, state, showValues = false) {
     if (then.rows?.length) line.text += showValues ? ` ${then.rows.map(valuesText).filter(Boolean).join(' ')}` : ` · ${then.rows.length} ${then.rows.length === 1 ? 'row' : 'rows'}`;
     lines.push(line);
   }
+  else if (then?.type === 'nothing') lines.push({ kw: 'Then', text: `nothing${then.reason ? ` (${then.reason})` : ''}` });
   else if (then?.type === 'rejection') lines.push({ kw: 'Then', text: `✕ ${then.reason || 'rejected'}`, reject: true });
   else lines.push({ kw: 'Then', text: 'not set' });
   return lines;

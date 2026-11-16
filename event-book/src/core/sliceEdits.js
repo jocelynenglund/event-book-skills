@@ -10,7 +10,7 @@ import { EventTypes as T } from './constants.js';
 export const sliceEdits = new Set([T.SliceNamed, T.SliceDescribed, T.SliceElementAdded, T.SliceElementRemoved, T.SliceInferred, T.ScenarioAdded, T.SentenceAdded, T.GapFilled, T.ParagraphWritten, T.ScenariosWaived, T.ScenarioWaiverLifted]);
 // The slice of the scenario named in the event (as it was before it)
 export const scenarioEdits = new Set([T.ScenarioDeleted, T.ScenarioRenamed, T.ScenarioMustHaveSet, T.ScenarioMoved,
-  T.GivenSet, T.WhenSet, T.ThenEventSet, T.ThenRejectionSet, T.ThenReadModelSet]);
+  T.GivenSet, T.WhenSet, T.ThenEventSet, T.ThenRejectionSet, T.ThenNothingSet, T.ThenReadModelSet]);
 // Every slice the sticky named in the event sits in: its fields, its name, its kind
 export const elementEdits = new Set([T.PropertyAdded, 'PropertyUpdated', T.PropertyRemoved, T.PropertyGeneratedSet,
   T.ElementRenamed, T.ElementListSet, T.ElementTodoSet, T.ElementExternalSet, T.ElementPublishedSet]);

@@ -51,7 +51,7 @@ function scenarioLines(scn, slice, state, fn) {
   const command = scn.when?.commandId ? name(scn.when.commandId) : sliceTitle(slice, state);
   lines.push(`    .when(${str(command)}, ${lit(scn.when?.values)}, ${fn})`);
   if (t?.type === 'event') lines.push(`    .then([${str(typeName(name(t.eventId)))}, ${lit(t.values)}]);`);
-  else if (t?.type === 'rejection') lines.push(`    .thenNothing(${str(t.reason || '')});`);
+  else if (t?.type === 'rejection' || t?.type === 'nothing') lines.push(`    .thenNothing(${str(t.reason || '')});`);
   else lines.push('    .thenNothing();');
   return lines;
 }

@@ -42,14 +42,15 @@ Every slice gets Given / When / Then scenarios:
 1. **Happy case first** for every command: Given nothing (or only the fewest events the command needs), When the command, Then its event.
 2. **One scenario per refusal**, each with the reason a person would read (`"Sold out today"`, `"Only the organizer can cancel"`). A refusal always has a reason.
 3. **A view** shows its rows for a few simple histories: nothing yet (`"rows": []`), one event, a later event changing an earlier row.
-4. **An automation** shows the event that starts it and what it records.
+4. **An automation** shows the event that starts it and what it records, and when it finds nothing to do (`nothing`).
+5. **Harmless repeats** of a command get a `nothing` scenario.
 
 Make the happy case and every business-rule refusal `"mustHave": true`; leave it out for a nice to have. Use small, concrete example values (ids like `"o-1"`, names like `"Sam"`, numbers as numbers), the same ones across a chapter, and the same field names as the step's `fields`.
 
 - **Time:** when a rule depends on "now" (due dates, expiry), pass it in as a command field (`"today": "2026-11-03"`). Never rely on a hidden clock.
 - **Views have no clock and no caller.** A view only gets the events. If what it shows depends on today or on who is asking, show the plain fact (`closesOn`) and let the screen compare it; put access rules on the command or the server. A view scenario that needs `today` or a caller can't be tested as written.
 - **Given** holds every event the decision depends on, from any chapter (a loan's `Tool borrowed` when returning it).
-- **Harmless repeats** (a second identical request that changes nothing) have no outcome of their own in this format: `then` is an event, a refusal, or a read model. Say it in the step's `description` ("Returning twice records nothing") and in your notes, rather than inventing a refusal.
+- **Refused vs nothing:** `rejected` means the caller is told no, with a reason they see. `nothing` means the answer is yes but nothing changes (a harmless repeat such as reserving the same tool twice, or an automation that finds nothing to do), with a one-line reason why. Don't invent a refusal for a harmless repeat.
 
 **How big:** a first proposal covers the main journey, 3–6 chapters. Per command: the happy path plus the refusals that matter (2–5 scenarios); per view, 1–2. Around 15–35 scenarios in all is plenty. Mention the rules you left out in your notes.
 
@@ -128,7 +129,7 @@ The rules, in short (the guide has all of them):
 
 - **`do`** needs `command`; `event` (or `events`) is what it records. **`see`** needs `readModel`; `events` lists every event it is built from; add `"list": true` for a list of rows. **`auto`** needs `processor` and `command`; `when` is the starting event, `using` the to-do read model (add `"todo": true`), `result` what the command records.
 - **`fields`** is a comma-separated string: `"orderId, price:number, paid:boolean, items[]"`. On `do` and `auto` steps they are the command's and its events'; on `see` steps, the read model's.
-- **A scenario** has `name`, optional `mustHave`, `given` (past events, each `{ "event", "values" }`, `[]` for nothing), `when` (`{ "values" }` for `do` and `auto`; left out on `see`) and `then`: one of `{ "event", "values" }`, `{ "rejected": "reason" }`, `{ "readModel", "rows" }` or `{ "readModel", "values" }`.
+- **A scenario** has `name`, optional `mustHave`, `given` (past events, each `{ "event", "values" }`, `[]` for nothing), `when` (`{ "values" }` for `do` and `auto`; left out on `see`) and `then`: one of `{ "event", "values" }`, `{ "rejected": "reason" }` (refused, the caller sees the reason), `{ "nothing": "why" }` (accepted, changes nothing; alone, one line, reason required), `{ "readModel", "rows" }` or `{ "readModel", "values" }`.
 - **External events and legacy tables:** mark an event another system records with `"external": true`, and an event that is really a legacy table with `"table": "<name>"`; with several events, or on an `auto` step, write each as `{ "name", "external" | "table" }`.
 - **Only the listed keys are allowed.** Event Book refuses a file with an unknown key and nothing is imported. Don't add `repo`, `commit` or `build`; those belong to files the tests write (the build skill).
 

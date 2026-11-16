@@ -18,6 +18,7 @@ import {
   setWhen,
   setThenEvent,
   setThenRejection,
+  setThenNothing,
   setThenReadModel,
   renameScenario,
   setMustHave
@@ -241,6 +242,7 @@ export function selectWhenCommand(commandId) {
 export function selectThenType(type) {
   document.getElementById('thenEventSection').style.display = type === 'event' ? '' : 'none';
   document.getElementById('thenRejectionSection').style.display = type === 'rejection' ? '' : 'none';
+  document.getElementById('thenNothingSection').style.display = type === 'nothing' ? '' : 'none';
 
   document.querySelectorAll('.then-type-toggle .radio-item').forEach(item => {
     item.classList.toggle('selected', item.querySelector('input').value === type);
@@ -315,6 +317,13 @@ export function thenRowRemove(index) {
 export function saveScenario() {
   if (!editingScenarioId && !editingScenario?.draft) return;
 
+  // Then nothing needs its reason: say so before anything is saved
+  if (editingSliceType === 'SC' && document.querySelector('input[name="thenType"]:checked')?.value === 'nothing'
+      && !document.getElementById('nothingReasonInput')?.value?.trim()) {
+    showToast('nothing needs a reason: one line saying why nothing happens');
+    return;
+  }
+
   // Name, if it was changed in the title
   const newName = document.getElementById('editScenarioTitle')?.value.trim();
   if (editingScenario?.draft) editingScenarioId = addScenario(editingSliceId, newName || editingScenario.name, editingSliceType);
@@ -344,6 +353,8 @@ export function saveScenario() {
         const values = getPropertyValues('then-event', eventSelect.value);
         setThenEvent(editingScenarioId, eventSelect.value, values);
       }
+    } else if (thenType === 'nothing') {
+      setThenNothing(editingScenarioId, document.getElementById('nothingReasonInput').value.trim());
     } else if (thenType === 'rejection') {
       const reason = document.getElementById('rejectionReasonInput')?.value?.trim();
       if (reason) {

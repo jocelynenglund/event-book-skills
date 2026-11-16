@@ -25,9 +25,10 @@ export function scenarioEditorChoices(book, sliceId, scenario) {
       sliceId, type: 'SC',
       when: { commands, selectedId: selectedCommand?.id || '', inputs: inputsOf(selectedCommand?.id, 'when', scenario.when?.values) },
       then: {
-        kind: then?.type === 'rejection' ? 'rejection' : 'event', events, selectedId: then?.eventId || '',
+        kind: then?.type === 'rejection' || then?.type === 'nothing' ? then.type : 'event', events, selectedId: then?.eventId || '',
         inputs: isEvent ? inputsOf(events.find(e => e.id === then.eventId)?.id, 'then-event', then.values) : null,
-        reason: then?.reason || ''
+        reason: then?.type === 'rejection' ? then.reason || '' : '',
+        nothingReason: then?.type === 'nothing' ? then.reason || '' : ''
       }
     };
   }

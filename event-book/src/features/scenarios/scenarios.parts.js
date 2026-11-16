@@ -16,6 +16,7 @@ const refHtml = r => r
 function bodyHtml(b) {
   if (b.none) return `<span class="gwt-none">${b.none}</span>`;
   if (b.rejected !== undefined) return `<span class="gwt-reject">Rejected: ${escapeHtml(b.rejected)}</span>`;
+  if (b.nothing !== undefined) return `<span class="gwt-none">Nothing${b.nothing ? ` (${escapeHtml(b.nothing)})` : ''}</span>`;
   if (b.rows) return `${refHtml(b.ref)}<span class="gwt-rows">${b.rows.map(r => `<span class="gwt-row">${valuesHtml(r)}</span>`).join('')}</span>`;
   if (b.rowCount) return `${refHtml(b.ref)} <span class="gwt-values">(${b.rowCount} ${b.rowCount === 1 ? 'row' : 'rows'})</span>`;
   return refHtml(b.ref);

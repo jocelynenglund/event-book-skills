@@ -92,6 +92,7 @@ export const EventTypes = {
   WhenSet: 'WhenSet',
   ThenEventSet: 'ThenEventSet',
   ThenRejectionSet: 'ThenRejectionSet',
+  ThenNothingSet: 'ThenNothingSet',          // accepted but nothing changes (an idempotent command): { scenarioId, reason }
   ThenReadModelSet: 'ThenReadModelSet',
 
   // Model events

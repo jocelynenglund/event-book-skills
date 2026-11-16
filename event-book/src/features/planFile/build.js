@@ -173,9 +173,15 @@ export function checkScenario(x) {
     const bad = Object.keys(x.when).filter(k => !['values', 'command'].includes(k));
     if (bad.length) throw new Error(`${x.name}: when is {values, command?}; put ${bad.join(', ')} inside values`);
   }
-  if (x.then !== undefined && (typeof x.then !== 'object' || Array.isArray(x.then))) throw new Error(`${x.name}: then is one {event, values}, {rejected} or {readModel?, values | rows}`);
-  const tk = Object.keys(x.then || {}).filter(k => !['event', 'values', 'rejected', 'readModel', 'rows'].includes(k));
-  if (tk.length) throw new Error(`${x.name}: then takes event, values, rejected, readModel or rows; not ${tk.join(', ')}`);
+  if (x.then !== undefined && (typeof x.then !== 'object' || Array.isArray(x.then))) throw new Error(`${x.name}: then is one {event, values}, {rejected}, {nothing} or {readModel?, values | rows}`);
+  const tk = Object.keys(x.then || {}).filter(k => !['event', 'values', 'rejected', 'nothing', 'readModel', 'rows'].includes(k));
+  if (tk.length) throw new Error(`${x.name}: then takes event, values, rejected, nothing, readModel or rows; not ${tk.join(', ')}`);
+  // nothing: the command is accepted but changes nothing (an idempotent command); its reason says why, in one line
+  if (x.then && 'nothing' in x.then) {
+    if (typeof x.then.nothing !== 'string' || !x.then.nothing.trim()) throw new Error(`${x.name}: nothing needs a reason, one line saying why nothing happens`);
+    if (/[\r\n]/.test(x.then.nothing.trim())) throw new Error(`${x.name}: the reason for nothing is one line`);
+    if (['event', 'rejected', 'readModel', 'rows', 'values'].some(k => k in x.then)) throw new Error(`${x.name}: nothing cannot go with event, rejected or readModel: it is its own outcome (accepted, changes nothing)`);
+  }
 }
 
 export function addScenario(slice, x) {
@@ -189,7 +195,8 @@ export function addScenario(slice, x) {
     if (cmd) sc.setWhen(id, cmd.id, x.when?.values || {});
   }
   const t = x.then || {};
-  if (t.rejected) sc.setThenRejection(id, t.rejected);
+  if (t.nothing) sc.setThenNothing(id, t.nothing.trim());
+  else if (t.rejected) sc.setThenRejection(id, t.rejected);
   else if (t.event) sc.setThenEvent(id, elementByName('event', t.event), t.values || {});
   else if (t.readModel || slice.type === 'SV') {
     const rm = t.readModel ? elementByName('readModel', t.readModel) : own('readModel')[0]?.id;

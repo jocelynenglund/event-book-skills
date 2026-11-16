@@ -56,7 +56,7 @@ function shape(scn, state) {
   return {
     given: (scn.given || []).map(g => name(g.elementId)).filter(Boolean),
     when: scn.when?.commandId ? name(scn.when.commandId) : '',
-    then: t?.type === 'event' ? name(t.eventId) : t?.type === 'rejection' ? 'rejected' : t?.type === 'readModel' ? name(t.readModelId) : ''
+    then: t?.type === 'event' ? name(t.eventId) : t?.type === 'rejection' ? 'rejected' : t?.type === 'nothing' ? 'nothing' : t?.type === 'readModel' ? name(t.readModelId) : ''
   };
 }
 

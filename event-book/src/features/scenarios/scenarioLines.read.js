@@ -39,6 +39,7 @@ export function scenarioLines(book, scn, { values = true } = {}) {
   }
   else if (then?.type === 'readModel') body = { ref: ref(then.readModelId, then.values) };
   else if (then?.type === 'rejection') body = { rejected: then.reason || '' };
+  else if (then?.type === 'nothing') body = { nothing: then.reason || '' };
   lines.push({ kw: 'Then', body });
   return { id: scn.id || '', lines };
 }

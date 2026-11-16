@@ -106,6 +106,7 @@ export function chapterEvents(state, chapterId, { target = null, name = null } =
     if (th?.type === 'event' && elMap[th.eventId]) add(EventTypes.ThenEventSet, { scenarioId, eventId: elMap[th.eventId], values: th.values || {} });
     else if (th?.type === 'readModel' && elMap[th.readModelId]) add(EventTypes.ThenReadModelSet, { scenarioId, readModelId: elMap[th.readModelId], values: th.values || {}, ...(th.rows ? { rows: th.rows } : {}) });
     else if (th?.type === 'rejection') add(EventTypes.ThenRejectionSet, { scenarioId, reason: th.reason });
+    else if (th?.type === 'nothing') add(EventTypes.ThenNothingSet, { scenarioId, reason: th.reason });
   });
 
   return out;

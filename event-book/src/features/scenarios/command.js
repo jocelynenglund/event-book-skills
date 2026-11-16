@@ -80,6 +80,14 @@ export function setThenRejection(scenarioId, reason) {
   });
 }
 
+// Set Then nothing (SC scenarios - accepted, but it changes nothing: an idempotent command)
+export function setThenNothing(scenarioId, reason) {
+  appendEvent(EventTypes.ThenNothingSet, {
+    scenarioId,
+    reason
+  });
+}
+
 // Set Then read model (SV scenarios)
 // rows: for a read model that's a list, its example rows (each like values)
 export function setThenReadModel(scenarioId, readModelId, values, rows = null) {
